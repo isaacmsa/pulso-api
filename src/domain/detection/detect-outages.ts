@@ -1,4 +1,4 @@
-import type { DeviceEvent, SnapshotEvent } from '../events/schema';
+import type { DeviceEvent, ReportEvent, SnapshotEvent } from '../events/schema';
 import { MIN_OUTAGE_MS, TRANSITION_MS } from './constants';
 import type { DetectedOutage, HomeMode } from './types';
 
@@ -25,7 +25,9 @@ const INITIAL_STATE: DetectionState = {
 const atHome = (s: SnapshotEvent): boolean => s.homeWifi ?? s.onWifi;
 const powered = (s: SnapshotEvent): boolean => s.plugged && atHome(s);
 
-const byTimeThenId = (a: SnapshotEvent, b: SnapshotEvent): number =>
+type TimelineEvent = SnapshotEvent | ReportEvent;
+
+const byTimeThenId = (a: TimelineEvent, b: TimelineEvent): number =>
   a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 // Modo base sin corte abierto: armar, seguir la transición o abrir.
@@ -43,6 +45,22 @@ const stepBaseIdle = (state: DetectionState, s: SnapshotEvent): DetectionState =
   return { ...state, armed: false, transitionStart: null };
 };
 
+// Un corte que dura menos de MIN_OUTAGE_MS es un bajón.
+const statusAt = (open: OpenOutage, end: number): 'cerrado' | 'descartado' =>
+  end - open.start >= MIN_OUTAGE_MS ? 'cerrado' : 'descartado';
+
+const closedOutage = (
+  open: OpenOutage,
+  end: number,
+  status: 'cerrado' | 'descartado',
+): DetectedOutage => ({
+  start: open.start,
+  end,
+  status,
+  confidence: open.confidence,
+  confirmed: null,
+});
+
 const closeOutage = (
   open: OpenOutage,
   end: number,
@@ -56,7 +74,7 @@ const closeOutage = (
     pluggedAt: null,
     prevPowered: powered(s),
   },
-  closed: { start: open.start, end, status, confidence: open.confidence, confirmed: null },
+  closed: closedOutage(open, end, status),
 });
 
 // Modo base con corte abierto: las filas se evalúan en el orden de docs/classifier.md.
@@ -69,7 +87,7 @@ const stepBaseOpen = (state: DetectionState, open: OpenOutage, s: SnapshotEvent)
   }
   if (atHome(s) && (s.plugged || s.homeWifi === true)) {
     const end = state.pluggedAt ?? s.at;
-    return closeOutage(open, end, end - open.start >= MIN_OUTAGE_MS ? 'cerrado' : 'descartado', s);
+    return closeOutage(open, end, statusAt(open, end), s);
   }
   if (s.onWifi && !s.plugged && s.homeWifi === null) {
     return closeOutage(open, s.at, 'descartado', s);
@@ -103,15 +121,51 @@ const stepUps = (state: DetectionState, s: SnapshotEvent): StepResult => {
   }
   if (s.plugged) {
     const end = s.at;
-    return closeOutage(
-      state.open,
-      end,
-      end - state.open.start >= MIN_OUTAGE_MS ? 'cerrado' : 'descartado',
-      s,
-    );
+    return closeOutage(state.open, end, statusAt(state.open, end), s);
   }
   // Otra red: no sabe nada de la casa. Cualquier otra cosa lo deja abierto.
   if (s.onWifi && s.homeWifi === false) return closeOutage(state.open, s.at, 'descartado', s);
+  return { state, closed: null };
+};
+
+// Corte manual abierto: solo lo cierra un snapshot que entra en powered.
+// Uno repetido no lo cierra (el teléfono solo sube cambios).
+const stepManualOpen = (state: DetectionState, open: OpenOutage, s: SnapshotEvent): StepResult =>
+  powered(s) && !state.prevPowered
+    ? closeOutage(open, s.at, statusAt(open, s.at), s)
+    : { state, closed: null };
+
+const stepSnapshot = (mode: HomeMode, state: DetectionState, s: SnapshotEvent): StepResult => {
+  if (state.open?.confidence === 'manual') return stepManualOpen(state, state.open, s);
+  return mode === 'ups' ? stepUps(state, s) : stepBase(state, s);
+};
+
+// Un reporte no trae estado de carga: prevPowered sigue al último snapshot.
+const stepReport = (state: DetectionState, r: ReportEvent): StepResult => {
+  if (r.value === 'sin_luz' && state.open === null) {
+    return {
+      state: {
+        ...state,
+        armed: false,
+        transitionStart: null,
+        open: { start: r.at, confidence: 'manual' },
+        pluggedAt: null,
+      },
+      closed: null,
+    };
+  }
+  if (r.value === 'hay_luz' && state.open !== null) {
+    return {
+      state: {
+        ...state,
+        armed: state.prevPowered,
+        transitionStart: null,
+        open: null,
+        pluggedAt: null,
+      },
+      closed: closedOutage(state.open, r.at, statusAt(state.open, r.at)),
+    };
+  }
   return { state, closed: null };
 };
 
@@ -119,17 +173,22 @@ export function detectOutages(
   events: readonly DeviceEvent[],
   options: { mode: HomeMode },
 ): DetectedOutage[] {
-  const snapshots = events
-    .filter((e): e is SnapshotEvent => e.kind === 'snapshot')
+  const timeline = events
+    .filter((e): e is TimelineEvent => e.kind === 'snapshot' || e.kind === 'report')
     .sort(byTimeThenId);
 
   const outages: DetectedOutage[] = [];
-  const step = options.mode === 'ups' ? stepUps : stepBase;
   let state = INITIAL_STATE;
-  for (const s of snapshots) {
-    const result = step(state, s);
-    state = { ...result.state, prevPowered: powered(s) };
-    if (result.closed) outages.push(result.closed);
+  for (const e of timeline) {
+    if (e.kind === 'report') {
+      const result = stepReport(state, e);
+      state = result.state;
+      if (result.closed) outages.push(result.closed);
+    } else {
+      const result = stepSnapshot(options.mode, state, e);
+      state = { ...result.state, prevPowered: powered(e) };
+      if (result.closed) outages.push(result.closed);
+    }
   }
 
   if (state.open) {
