@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { classify } from '../../src/domain/detection/classify';
+import type { DetectedOutage } from '../../src/domain/detection/types';
 import { type DeviceEvent, deviceEventSchema } from '../../src/domain/events/schema';
 import { spikeExportSchema } from '../../src/domain/spike/schema';
 import { CARACAS_OFFSET_MS } from '../../src/domain/time/caracas';
+import { detectorInput } from './detector-input';
 import { measureMechanisms } from './measure';
 
 // 'YYYY-MM-DD HH:mm' en hora de Caracas, sin Intl
@@ -62,16 +64,22 @@ console.table(
   })),
 );
 
+const outageRows = (outages: readonly DetectedOutage[]) =>
+  outages.map((o) => ({
+    inicio: caracasLocal(o.start),
+    fin: endLabel(o.end),
+    minutos: durationMin(o.start, o.end),
+    estado: o.status,
+    confianza: o.confidence,
+    confirmado: o.confirmed,
+  }));
+
+// Sin botones: los botones son la verdad, así que el detector no puede verlos
 for (const mode of ['base', 'ups'] as const) {
-  console.log(`\nCortes detectados (modo ${mode}):`);
-  console.table(
-    classify(events, { mode }).map((o) => ({
-      inicio: caracasLocal(o.start),
-      fin: endLabel(o.end),
-      minutos: durationMin(o.start, o.end),
-      estado: o.status,
-      confianza: o.confidence,
-      confirmado: o.confirmed,
-    })),
-  );
+  console.log(`\nCortes detectados sin botones (modo ${mode}):`);
+  console.table(outageRows(classify(detectorInput(events), { mode })));
 }
+
+// Referencia: lo que vería el servidor con los botones incluidos. No sirve para medir el detector
+console.log('\nCon botones (modo base, solo referencia: los botones también son la verdad):');
+console.table(outageRows(classify(events, { mode: 'base' })));

@@ -10,7 +10,7 @@ Las señales y los mecanismos que las producen están en `pulso-app/docs/detecti
 
 ## Funciones
 
-Funciones puras en `src/domain/detection/`, sin Hono ni base de datos. `POST /v1/events` las corre sobre la ventana de eventos de cada casa, y `pnpm spike:analyze` sobre los exportes del registrador.
+Funciones puras en `src/domain/detection/`, sin Hono ni base de datos. `POST /v1/events` las corre sobre la ventana de eventos de cada casa, y `pnpm spike:analyze` sobre los exportes del registrador, sin los reportes (los botones son la verdad con la que se compara; A-013).
 
 ```ts
 detectOutages(events: readonly DeviceEvent[], options: { mode: HomeMode }): DetectedOutage[]
