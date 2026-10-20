@@ -1,0 +1,262 @@
+{
+  "exportedAt": 1793239200000,
+  "diagnostics": {
+    "appVersion": "0.1.0-spike",
+    "manufacturer": "Xiaomi",
+    "model": "Redmi Note 12",
+    "sdkInt": 34,
+    "standbyBucket": 10,
+    "ignoringBatteryOptimizations": true,
+    "pendingEvents": 0,
+    "storedEvents": 21,
+    "homeNetworkLearned": true,
+    "armed": {
+      "networkCallback": true,
+      "heartbeat": true,
+      "chargingJob": true,
+      "foregroundService": false
+    }
+  },
+  "events": [
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000001",
+      "at": 1793223000000,
+      "source": "heartbeat",
+      "plugged": true,
+      "onWifi": true,
+      "homeWifi": true,
+      "internet": true,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000002",
+      "at": 1793223900000,
+      "source": "heartbeat",
+      "plugged": true,
+      "onWifi": true,
+      "homeWifi": true,
+      "internet": true,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000003",
+      "at": 1793224800000,
+      "source": "heartbeat",
+      "plugged": true,
+      "onWifi": true,
+      "homeWifi": true,
+      "internet": true,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000004",
+      "at": 1793225400000,
+      "source": "power_receiver",
+      "plugged": false,
+      "onWifi": true,
+      "homeWifi": true,
+      "internet": true,
+      "interactive": false,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000005",
+      "at": 1793225412000,
+      "source": "charging_job",
+      "plugged": false,
+      "onWifi": true,
+      "homeWifi": true,
+      "internet": true,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "report",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000006",
+      "at": 1793225460000,
+      "value": "sin_luz"
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000007",
+      "at": 1793225460000,
+      "source": "network_callback",
+      "plugged": false,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000008",
+      "at": 1793225700000,
+      "source": "heartbeat",
+      "plugged": false,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000009",
+      "at": 1793226600000,
+      "source": "heartbeat",
+      "plugged": false,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000010",
+      "at": 1793227500000,
+      "source": "heartbeat",
+      "plugged": false,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000011",
+      "at": 1793228400000,
+      "source": "heartbeat",
+      "plugged": false,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000012",
+      "at": 1793229300000,
+      "source": "heartbeat",
+      "plugged": false,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000013",
+      "at": 1793230200000,
+      "source": "heartbeat",
+      "plugged": false,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000014",
+      "at": 1793231100000,
+      "source": "heartbeat",
+      "plugged": false,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000015",
+      "at": 1793232000000,
+      "source": "heartbeat",
+      "plugged": false,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000016",
+      "at": 1793232600000,
+      "source": "power_receiver",
+      "plugged": true,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": false,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000017",
+      "at": 1793232618000,
+      "source": "charging_job",
+      "plugged": true,
+      "onWifi": false,
+      "homeWifi": null,
+      "internet": null,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "report",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000018",
+      "at": 1793232660000,
+      "value": "hay_luz"
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000019",
+      "at": 1793232720000,
+      "source": "network_callback",
+      "plugged": true,
+      "onWifi": true,
+      "homeWifi": true,
+      "internet": true,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000020",
+      "at": 1793232900000,
+      "source": "heartbeat",
+      "plugged": true,
+      "onWifi": true,
+      "homeWifi": true,
+      "internet": true,
+      "interactive": null,
+      "batteryPct": 90
+    },
+    {
+      "kind": "snapshot",
+      "id": "01940c8e-5b1a-7d3f-9a2c-000000000021",
+      "at": 1793233800000,
+      "source": "heartbeat",
+      "plugged": true,
+      "onWifi": true,
+      "homeWifi": true,
+      "internet": true,
+      "interactive": null,
+      "batteryPct": 90
+    }
+  ]
+}
