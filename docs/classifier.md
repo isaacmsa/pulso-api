@@ -29,7 +29,7 @@ type DetectedOutage = {
 
 | Constante | Valor | Para qué |
 | --- | --- | --- |
-| `MIN_OUTAGE_MS` | 10 min | Un corte más corto se descarta (bajón). Valor inicial: se ajusta con las confirmaciones |
+| `MIN_OUTAGE_MS` | 10 min | Un corte más corto se descarta (bajón), cierre como cierre: snapshot, `hay_luz` o corte manual. Valor inicial: se ajusta con las confirmaciones |
 | `TRANSITION_MS` | 3 min | Máximo entre "dejó de cargar" y "se cayó el Wi-Fi" para que cuente como corte |
 | `CONFIRMATION_TOLERANCE_MS` | 5 min | Cuánto puede separarse `outageStart` de una confirmación del inicio real |
 
@@ -65,17 +65,21 @@ Con corte abierto:
 - **Cierra** con el primer snapshot `plugged`, aunque el Wi-Fi todavía no haya vuelto.
 - **Descarta** un corte `media` si aparece en otra red (`onWifi && homeWifi === false`; **regla con huella**). Un corte `alta` sigue abierto en otra red, como en el modo base: pudo abrirse con un snapshot que ya estaba en otra red (se fue la luz, murió el router y el teléfono se pasó al Wi-Fi del vecino), y repetir ese snapshot no puede descartarlo. Un `media` siempre se abre en el Wi-Fi de casa, así que ahí no hay conflicto.
 - Si se agota el UPS y cae el Wi-Fi, el corte sigue abierto.
+- No aplica el descarte del modo base por Wi-Fi desconocido sin carga (`onWifi && !plugged && homeWifi === null`): un corte `media` se abre justo con Wi-Fi y sin carga, así que sin huella esa regla lo descartaría con la primera copia del snapshot que lo abrió, y rompería la invariancia.
 - Con `interactive` en `true` o `null` al desenchufar, no abre.
+- Los reportes y las confirmaciones funcionan igual que en el modo base.
 
 ### Reportes y confirmaciones
 
 | Evento | Efecto |
 | --- | --- |
 | `report` `sin_luz` sin corte abierto | Abre un corte con confianza `manual` |
-| `report` `hay_luz` con corte abierto | Lo cierra en `at` |
+| `report` `hay_luz` con corte abierto | Lo cierra en `at`. Después queda armado si el último snapshot estaba en `powered`, porque un reporte no trae estado de carga |
 | `report` `fluctuando` | No crea cortes. El historial lo muestra como bajón |
 | Corte manual abierto | Solo lo cierran un `hay_luz` o un snapshot que **entra** en `powered` desde otro estado. Un snapshot repetido no lo cierra |
-| `confirmation` | Se aplica al corte cuyo `start` esté a `CONFIRMATION_TOLERANCE_MS` o menos de `outageStart`. Si hay varias, manda la última. `answer: false` deja el corte `descartado` con `confirmed: false`; `answer: true` deja `confirmed: true` |
+| Cualquier cierre (snapshot, `hay_luz` o corte manual) | `MIN_OUTAGE_MS` aplica siempre: si duró menos de 10 min, queda `descartado`, aunque sea un corte manual |
+| Reporte y snapshot con la misma `at` | Se ordenan por `id`, como cualquier empate. El resultado no depende del orden en que lleguen |
+| `confirmation` | Se aplica al corte cuyo `start` esté a `CONFIRMATION_TOLERANCE_MS` o menos de `outageStart`. Si cae en la tolerancia de varios cortes, va al de `start` más cercano (en empate, al más temprano). Si hay varias confirmaciones, manda la última. `answer: false` deja el corte `descartado` con `confirmed: false`; `answer: true` deja `confirmed: true` |
 
 En el servidor, un corte `abierto` que pasa 24 horas sin eventos nuevos queda `sin_datos` y no suma horas. Es una regla de tiempo y vive en el cron `sweep`, no en el clasificador.
 
@@ -95,11 +99,13 @@ Viven en `src/domain/detection/*.test.ts` y corren con `pnpm test`. El código e
 | No abre si cargaba fuera de casa | Descarta si aparece en otra red | `answer: true` lo confirma |
 | El fin es la hora en que volvió la corriente | Sigue abierto si al irse la luz el teléfono se pasa a otra red | Tolera hasta 5 min de diferencia en `outageStart` |
 | Un parpadeo mientras arranca el router mueve el fin | Snapshots repetidos no cambian el resultado | Una confirmación sin corte cercano se ignora |
-| El Wi-Fi de casa sin corriente cierra el corte | | La última confirmación manda |
+| El Wi-Fi de casa sin corriente cierra el corte | Un corte `media` sigue abierto en Wi-Fi sin huella y sin carga | La última confirmación manda |
 | Otra red Wi-Fi no cierra el corte | | `classify` aplica las confirmaciones sobre lo detectado |
-| Snapshots repetidos no cambian el resultado | | |
-| No depende del orden de entrada con empate de hora | | |
-| Reiniciar enchufado durante el corte lo cierra | | |
-| Sigue abierto si al irse la luz el teléfono se pasa a otra red | | |
+| Snapshots repetidos no cambian el resultado | | `hay_luz` antes de 10 min deja el corte manual descartado |
+| No depende del orden de entrada con empate de hora | | Entrar en `powered` antes de 10 min deja el corte manual descartado |
+| Reiniciar enchufado durante el corte lo cierra | | `hay_luz` rearma desde el último snapshot |
+| Sigue abierto si al irse la luz el teléfono se pasa a otra red | | En modo UPS, `sin_luz` abre un corte manual y `hay_luz` lo cierra |
+| | | Un reporte y un snapshot a la misma hora se ordenan por `id` |
+| | | Con dos cortes dentro de la tolerancia va al de inicio más cercano |
 
 Además, `detect-outages.property.test.ts` prueba la propiedad de los snapshots repetidos en los dos modos: genera miles de líneas de tiempo con reportes (semilla fija, así siempre son las mismas), mete la copia de un snapshot antes del evento siguiente y exige el mismo resultado.

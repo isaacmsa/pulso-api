@@ -74,6 +74,12 @@ describe('detectOutages (modo UPS)', () => {
       ]),
     ).toEqual([outage(5, 95, 'cerrado')]);
   });
+  it('un corte media sigue abierto en Wi-Fi sin huella y sin carga', () => {
+    // El descarte del modo base por Wi-Fi desconocido no aplica: con UPS el Wi-Fi sigue arriba
+    expect(
+      ups([snap(0, true, true, idle), snap(5, false, true, idle), snap(30, false, true)]),
+    ).toEqual([outage(5, null, 'abierto')]);
+  });
   it('descarta si aparece en otra red', () => {
     expect(
       ups([

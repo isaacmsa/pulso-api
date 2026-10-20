@@ -35,4 +35,13 @@ describe('applyConfirmations', () => {
       applyConfirmations([closed], [confirmation(140, 5, false), confirmation(130, 5, true)]),
     ).toEqual([{ ...closed, status: 'descartado', confirmed: false }]);
   });
+  it('con dos cortes dentro de la tolerancia va al de inicio más cercano', () => {
+    const early: DetectedOutage = { ...closed, start: at(5), end: at(8) };
+    const late: DetectedOutage = { ...closed, start: at(12), end: at(125) };
+    // outageStart a las 10: a 5 min del primero y a 2 del segundo
+    expect(applyConfirmations([early, late], [confirmation(130, 10, false)])).toEqual([
+      early,
+      { ...late, status: 'descartado', confirmed: false },
+    ]);
+  });
 });
