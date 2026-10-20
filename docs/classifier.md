@@ -1,0 +1,102 @@
+# Clasificador de cortes
+
+**Qué responde este documento**
+
+- Qué funciones convierten los eventos de una casa en cortes
+- Las reglas del modo base, del modo UPS, de los reportes y de las confirmaciones
+- Qué tests deben pasar siempre
+
+Las señales y los mecanismos que las producen están en `pulso-app/docs/detection.md`. El clasificador vive solo aquí (D-016 del producto): la app no clasifica.
+
+## Funciones
+
+Funciones puras en `src/domain/detection/`, sin Hono ni base de datos. `POST /v1/events` las corre sobre la ventana de eventos de cada casa, y `pnpm spike:analyze` sobre los exportes del registrador.
+
+```ts
+detectOutages(events: readonly DeviceEvent[], options: { mode: HomeMode }): DetectedOutage[]
+applyConfirmations(outages: readonly DetectedOutage[], events: readonly DeviceEvent[]): DetectedOutage[]
+classify(events: readonly DeviceEvent[], options: { mode: HomeMode }): DetectedOutage[] // detect + confirmaciones
+
+type HomeMode = 'base' | 'ups';
+type DetectedOutage = {
+  start: number;        // epoch ms
+  end: number | null;   // null = en curso
+  status: 'abierto' | 'cerrado' | 'descartado';
+  confidence: 'alta' | 'media' | 'manual';
+  confirmed: boolean | null;
+};
+```
+
+| Constante | Valor | Para qué |
+| --- | --- | --- |
+| `MIN_OUTAGE_MS` | 10 min | Un corte más corto se descarta (bajón). Valor inicial: se ajusta con las confirmaciones |
+| `TRANSITION_MS` | 3 min | Máximo entre "dejó de cargar" y "se cayó el Wi-Fi" para que cuente como corte |
+| `CONFIRMATION_TOLERANCE_MS` | 5 min | Cuánto puede separarse `outageStart` de una confirmación del inicio real |
+
+Definiciones: `atHome(s) = s.homeWifi ?? s.onWifi` y `powered(s) = s.plugged && atHome(s)`. Los eventos se ordenan por `at` y, si empatan, por `id`.
+
+**Propiedad que siempre se cumple:** repetir un snapshot con el mismo `(plugged, onWifi, homeWifi, internet)` no cambia el resultado. Esto permite que el teléfono suba solo los cambios de estado y que el servidor llegue a lo mismo que la app.
+
+### Modo base: el router se apaga con el corte
+
+Sin corte abierto:
+
+| Snapshot | Efecto |
+| --- | --- |
+| `powered` | Queda "armado" (la casa tenía luz) |
+| Armado, `!plugged && atHome` | Empieza la transición: `transitionStart` toma su hora si estaba vacío |
+| Armado, `!plugged && !atHome` | Si `at − (transitionStart ?? at) ≤ TRANSITION_MS`, abre un corte con `start = transitionStart ?? at` y confianza `alta`. En cualquier caso, desarma |
+| Cualquier otro (por ejemplo, cargando sin Wi-Fi) | Desarma |
+
+Con corte abierto:
+
+| Snapshot | Efecto |
+| --- | --- |
+| `plugged && !atHome` | Sigue abierto: el router está arrancando. Guarda `pluggedAt` si estaba vacío |
+| `!plugged` sin Wi-Fi | Sigue abierto y borra `pluggedAt` (fue un parpadeo) |
+| `atHome && (plugged \|\| homeWifi === true)` | Cierra con `end = pluggedAt ?? at`. Queda `cerrado` si duró `MIN_OUTAGE_MS` o más; si no, `descartado`. **Regla con huella:** el Wi-Fi de casa sin corriente también cierra, porque el router tiene luz |
+| `onWifi && !plugged && homeWifi === null` | `descartado` en `at`: Wi-Fi desconocido sin carga suele ser alguien que desenchufó y salió |
+| `onWifi && homeWifi === false` | Sigue abierto: el teléfono está en otra red y no sabe nada de la casa |
+
+### Modo router con UPS: el Wi-Fi no se cae
+
+- **Abre** cuando el snapshot anterior era `powered` y el actual es `!plugged && atHome && interactive === false`. Confianza `media`.
+- También abre con la regla del modo base (corriente y Wi-Fi caen juntos: el UPS se agotó o no había UPS). Confianza `alta`.
+- **Cierra** con el primer snapshot `plugged`, aunque el Wi-Fi todavía no haya vuelto.
+- **Descarta** si aparece en otra red (`onWifi && homeWifi === false`; **regla con huella**).
+- Si se agota el UPS y cae el Wi-Fi, el corte sigue abierto.
+- Con `interactive` en `true` o `null` al desenchufar, no abre.
+
+### Reportes y confirmaciones
+
+| Evento | Efecto |
+| --- | --- |
+| `report` `sin_luz` sin corte abierto | Abre un corte con confianza `manual` |
+| `report` `hay_luz` con corte abierto | Lo cierra en `at` |
+| `report` `fluctuando` | No crea cortes. El historial lo muestra como bajón |
+| Corte manual abierto | Solo lo cierran un `hay_luz` o un snapshot que **entra** en `powered` desde otro estado. Un snapshot repetido no lo cierra |
+| `confirmation` | Se aplica al corte cuyo `start` esté a `CONFIRMATION_TOLERANCE_MS` o menos de `outageStart`. Si hay varias, manda la última. `answer: false` deja el corte `descartado` con `confirmed: false`; `answer: true` deja `confirmed: true` |
+
+En el servidor, un corte `abierto` que pasa 24 horas sin eventos nuevos queda `sin_datos` y no suma horas. Es una regla de tiempo y vive en el cron `sweep`, no en el clasificador.
+
+## Tests obligatorios
+
+Viven en `src/domain/detection/*.test.ts` y corren con `pnpm test`. El código exacto está en `docs/plans/2026-10-19-fase-0-clasificador.md`. Todo cambio de reglas o de umbral agrega su propio caso, idealmente sacado de un exporte real que queda en `test/fixtures/`.
+
+| Modo base | Modo UPS | Reportes y confirmaciones |
+| --- | --- | --- |
+| Cierra cuando vuelven corriente y Wi-Fi | Abre y cierra cuando la corriente se va sola con la pantalla apagada | `sin_luz` sin corte abierto abre uno manual |
+| Descarta caídas de menos de 10 min | Ignora el desenchufe con la pantalla encendida | `hay_luz` cierra el corte abierto |
+| Descarta Wi-Fi desconocido sin carga | Ignora `interactive: null` | `fluctuando` no crea cortes |
+| Sigue abierto mientras arranca el router | Ignora si no estaba en casa | Un snapshot repetido no cierra un corte manual |
+| Tolera señales desordenadas | Sigue abierto si el UPS se agota | El corte manual se cierra al entrar en `powered` |
+| Abre aunque llegue una señal intermedia de transición | Descarta caídas de menos de 10 min | `sin_luz` con un corte abierto no cambia nada |
+| No abre si el Wi-Fi se cae después de `TRANSITION_MS` | Corriente y Wi-Fi juntos abren con `alta` | `answer: false` descarta el corte |
+| No abre si cargaba fuera de casa | Descarta si aparece en otra red | `answer: true` lo confirma |
+| El fin es la hora en que volvió la corriente | | Tolera hasta 5 min de diferencia en `outageStart` |
+| Un parpadeo mientras arranca el router mueve el fin | | Una confirmación sin corte cercano se ignora |
+| El Wi-Fi de casa sin corriente cierra el corte | | La última confirmación manda |
+| Otra red Wi-Fi no cierra el corte | | `classify` aplica las confirmaciones sobre lo detectado |
+| Snapshots repetidos no cambian el resultado | | |
+| No depende del orden de entrada con empate de hora | | |
+| Reiniciar enchufado durante el corte lo cierra | | |
