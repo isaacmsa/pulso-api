@@ -49,7 +49,7 @@ Errores: `{ error: { code, message } }`.
 // src/domain/events/schema.ts
 import { z } from '@hono/zod-openapi'; // el z de Zod 4 con .openapi()
 
-const epochMs = z.number().int().positive();
+export const epochMs = z.number().int().positive();
 
 export const snapshotSourceSchema = z.enum([
   'network_callback', 'heartbeat', 'charging_job', 'power_receiver',

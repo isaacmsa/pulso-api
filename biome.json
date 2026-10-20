@@ -1,5 +1,10 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "files": {
     "includes": ["**", "!**/.superpowers", "!**/node_modules", "!**/coverage", "!**/.wrangler"]
   },
@@ -19,5 +24,13 @@
     "formatter": {
       "quoteStyle": "single"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["test/fixtures/**"],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }
