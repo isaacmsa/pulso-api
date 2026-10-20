@@ -51,6 +51,29 @@ describe('detectOutages (modo UPS)', () => {
       outage(5, 65, 'cerrado', 'alta'),
     ]);
   });
+  it('sigue abierto si al irse la luz el teléfono se pasa a otra red', () => {
+    const events = [
+      snap(0, true, true, { homeWifi: true }),
+      snap(5, false, true, { homeWifi: false }),
+    ];
+    expect(ups(events)).toEqual([outage(5, null, 'abierto', 'alta')]);
+    expect(ups([...events, snap(20, false, true, { homeWifi: false })])).toEqual([
+      outage(5, null, 'abierto', 'alta'),
+    ]);
+  });
+  it('snapshots repetidos no cambian el resultado', () => {
+    expect(
+      ups([
+        snap(0, true, true, idle),
+        snap(1, true, true, idle),
+        snap(5, false, true, idle),
+        snap(30, false, true, idle),
+        snap(60, false, true, idle),
+        snap(95, true, true),
+        snap(96, true, true),
+      ]),
+    ).toEqual([outage(5, 95, 'cerrado')]);
+  });
   it('descarta si aparece en otra red', () => {
     expect(
       ups([

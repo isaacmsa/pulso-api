@@ -123,8 +123,13 @@ const stepUps = (state: DetectionState, s: SnapshotEvent): StepResult => {
     const end = s.at;
     return closeOutage(state.open, end, statusAt(state.open, end), s);
   }
-  // Otra red: no sabe nada de la casa. Cualquier otra cosa lo deja abierto.
-  if (s.onWifi && s.homeWifi === false) return closeOutage(state.open, s.at, 'descartado', s);
+  // Otra red descarta solo un corte 'media', que se abrió en el Wi-Fi de casa. Un 'alta' pudo
+  // abrirse en otra red, y repetir ese snapshot no puede descartarlo (invariancia).
+  const otherNetwork = s.onWifi && s.homeWifi === false;
+  if (otherNetwork && state.open.confidence === 'media') {
+    return closeOutage(state.open, s.at, 'descartado', s);
+  }
+  // Cualquier otra cosa lo deja abierto.
   return { state, closed: null };
 };
 

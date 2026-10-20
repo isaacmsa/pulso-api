@@ -63,7 +63,7 @@ Con corte abierto:
 - **Abre** cuando el snapshot anterior era `powered` y el actual es `!plugged && atHome && interactive === false`. Confianza `media`.
 - También abre con la regla del modo base (corriente y Wi-Fi caen juntos: el UPS se agotó o no había UPS). Confianza `alta`.
 - **Cierra** con el primer snapshot `plugged`, aunque el Wi-Fi todavía no haya vuelto.
-- **Descarta** si aparece en otra red (`onWifi && homeWifi === false`; **regla con huella**).
+- **Descarta** un corte `media` si aparece en otra red (`onWifi && homeWifi === false`; **regla con huella**). Un corte `alta` sigue abierto en otra red, como en el modo base: pudo abrirse con un snapshot que ya estaba en otra red (se fue la luz, murió el router y el teléfono se pasó al Wi-Fi del vecino), y repetir ese snapshot no puede descartarlo. Un `media` siempre se abre en el Wi-Fi de casa, así que ahí no hay conflicto.
 - Si se agota el UPS y cae el Wi-Fi, el corte sigue abierto.
 - Con `interactive` en `true` o `null` al desenchufar, no abre.
 
@@ -93,10 +93,13 @@ Viven en `src/domain/detection/*.test.ts` y corren con `pnpm test`. El código e
 | Abre aunque llegue una señal intermedia de transición | Descarta caídas de menos de 10 min | `sin_luz` con un corte abierto no cambia nada |
 | No abre si el Wi-Fi se cae después de `TRANSITION_MS` | Corriente y Wi-Fi juntos abren con `alta` | `answer: false` descarta el corte |
 | No abre si cargaba fuera de casa | Descarta si aparece en otra red | `answer: true` lo confirma |
-| El fin es la hora en que volvió la corriente | | Tolera hasta 5 min de diferencia en `outageStart` |
-| Un parpadeo mientras arranca el router mueve el fin | | Una confirmación sin corte cercano se ignora |
+| El fin es la hora en que volvió la corriente | Sigue abierto si al irse la luz el teléfono se pasa a otra red | Tolera hasta 5 min de diferencia en `outageStart` |
+| Un parpadeo mientras arranca el router mueve el fin | Snapshots repetidos no cambian el resultado | Una confirmación sin corte cercano se ignora |
 | El Wi-Fi de casa sin corriente cierra el corte | | La última confirmación manda |
 | Otra red Wi-Fi no cierra el corte | | `classify` aplica las confirmaciones sobre lo detectado |
 | Snapshots repetidos no cambian el resultado | | |
 | No depende del orden de entrada con empate de hora | | |
 | Reiniciar enchufado durante el corte lo cierra | | |
+| Sigue abierto si al irse la luz el teléfono se pasa a otra red | | |
+
+Además, `detect-outages.property.test.ts` prueba la propiedad de los snapshots repetidos en los dos modos: genera miles de líneas de tiempo con reportes (semilla fija, así siempre son las mismas), mete la copia de un snapshot antes del evento siguiente y exige el mismo resultado.

@@ -99,6 +99,15 @@ describe('detectOutages (modo base)', () => {
       ]),
     ).toEqual([outage(5, null, 'abierto')]);
   });
+  it('sigue abierto si al irse la luz el teléfono se pasa a otra red', () => {
+    expect(
+      base([
+        snap(0, true, true, { homeWifi: true }),
+        snap(5, false, true, { homeWifi: false }),
+        snap(20, false, true, { homeWifi: false }),
+      ]),
+    ).toEqual([outage(5, null, 'abierto')]);
+  });
   it('snapshots repetidos no cambian el resultado', () => {
     expect(
       base([
