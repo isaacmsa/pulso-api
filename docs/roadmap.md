@@ -13,7 +13,7 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 - [x] Repo, Biome, Vitest y CI (1 h)
 - [x] Contrato de eventos en Zod (1 h)
 - [x] Clasificador: modo base, modo UPS, reportes y confirmaciones, con todos los tests de `docs/classifier.md` (4 h)
-- [ ] Resumen por día en America/Caracas (1 h)
+- [x] Resumen por día en America/Caracas (1 h)
 - [ ] `pnpm spike:analyze` (1,5 h)
 
 **Lista cuando:** `pnpm test` está en verde y un exporte real del Xiaomi pasa por `pnpm spike:analyze`.
