@@ -106,7 +106,7 @@ export const outages = app
         sql`${t.status} IN ('abierto','cerrado','descartado','sin_datos')`,
       ),
       check('outages_confidence_check', sql`${t.confidence} IN ('alta','media','manual')`),
-      index('outages_home_started').on(t.homeId, t.startedAt.desc()),
+      index('outages_home_started').on(t.homeId, t.startedAt.desc().nullsFirst()), // DESC NULLS FIRST es el DESC por defecto: sirve a ORDER BY started_at DESC
       index('outages_open').on(t.homeId).where(sql`${t.status} = 'abierto'`),
     ],
   )

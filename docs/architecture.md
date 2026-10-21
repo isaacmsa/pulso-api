@@ -45,7 +45,7 @@ pulso-api/
 │  │  └─ routes.ts · service.ts · repo.ts · index.ts
 │  ├─ jobs/                     # sweep (cada 5 min), retention (diario)
 │  └─ testing/builders.ts       # snap(), report(), confirmation() para tests
-├─ drizzle/                     # migraciones SQL generadas, incluida la función app.ingest_batch
+├─ drizzle/                     # migraciones SQL generadas, incluidas las funciones de ingesta
 ├─ scripts/
 │  ├─ export-openapi.ts         # escribe openapi.json
 │  └─ spike/                    # analyze.ts y measure.ts: exportes del registrador
@@ -71,11 +71,11 @@ POST /v1/events (Bearer)
   → eventBatchSchema (zod-openapi)
   → offset = receivedAt − sentAt; at = device_at + offset
   → si el lote viene vacío (latido): la consulta 1 ya actualizó last_seen_at → listo
-  → si trae eventos: app.ingest_batch(device, eventos, offset)  (consulta 2, una transacción)
+  → si trae eventos: app.ingest_batch(device, home, eventos, offset, ahora)  (consulta 2, una transacción)
        inserta con ON CONFLICT (device_id, id) DO NOTHING y devuelve
-       accepted, duplicated y la ventana de la casa
+       accepted, duplicated, la revisión, la ventana y los cortes de la casa
   → classify y reconcileOutages en el Worker (dominio puro)
-  → app.apply_outages(home, cambios, estado)                     (consulta 3, una transacción)
+  → app.apply_outages(home, revisión, cambios, estado, ahora)  (consulta 3, una transacción)
   ← { accepted, duplicated, status }
 
 cron */5 min: push de inicio · sin noticias · sin_datos · recibos de Expo Push

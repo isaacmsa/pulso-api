@@ -127,9 +127,9 @@ Kotlin arma el JSON a mano. Para que no se desvíe del contrato, el test de cont
 1. Autentica y registra el latido en una sola consulta: `UPDATE app.devices SET last_seen_at = $now, diagnostics = $diag WHERE token_hash = $hash RETURNING id, home_id`.
 2. Valida con `eventBatchSchema`.
 3. Si el lote viene vacío, responde con el estado de la casa y termina.
-4. Calcula `offset = receivedAt − sentAt` y llama a `app.ingest_batch(device_id, events, offset)`. La función guarda cada evento con `device_at` sin tocar y `at = device_at + offset`, inserta con `ON CONFLICT (device_id, id) DO NOTHING` y devuelve `accepted`, `duplicated` y la ventana de la casa. La ventana va desde el último snapshot anterior al evento más viejo del lote, o desde el inicio del corte abierto si es anterior, hasta ahora.
+4. Calcula `offset = receivedAt − sentAt` y llama a `app.ingest_batch(device_id, home_id, events, offset, receivedAt)`. La función guarda cada evento con `device_at` sin tocar y `at = device_at + offset`, inserta con `ON CONFLICT (device_id, id) DO NOTHING` y devuelve `accepted`, `duplicated`, la revisión de la casa, la ventana y los cortes guardados que hay que reconciliar. La ventana está definida en `data-model.md` ("Funciones de ingesta").
 5. En el Worker corren `classify`, `reconcileOutages` y `deriveHomeStatus`.
-6. `app.apply_outages(home_id, cambios, estado)` aplica todo en una transacción y devuelve los cortes que se cerraron, para encolar sus push con `ctx.waitUntil`.
+6. `app.apply_outages(home_id, revision, cambios, estado, now)` aplica todo en una transacción, solo si la revisión no cambió (A-016), y devuelve el estado de la casa. Los push de los cortes que se cierran se encolan con `ctx.waitUntil` (fase 3).
 
 ## Límites de peticiones
 

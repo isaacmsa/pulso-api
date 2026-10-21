@@ -1,0 +1,327 @@
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import type { DetectedOutage } from '../../src/domain/detection/types';
+import type { DeviceEvent } from '../../src/domain/events/schema';
+import type { HomeStatus } from '../../src/domain/homes/schema';
+import { at, confirmation, snap } from '../../src/testing/builders';
+import { createHome, testDb, truncateAll } from './helpers';
+
+type StoredOutage = DetectedOutage & { id: string };
+
+type IngestResult = {
+  accepted: number;
+  duplicated: number;
+  revision: number;
+  mode: 'base' | 'ups';
+  window: DeviceEvent[];
+  outages: StoredOutage[];
+};
+
+type ApplyResult = { applied: boolean; status: HomeStatus };
+
+type Change = { op: 'insert' | 'update'; id: string; outage: DetectedOutage };
+
+const NOW = at(2000);
+
+describe('funciones de ingesta', () => {
+  const { sql } = testDb();
+
+  beforeEach(async () => {
+    await truncateAll(sql);
+  });
+
+  afterAll(async () => {
+    await sql.end();
+  });
+
+  async function ingest(
+    home: { homeId: string; deviceId: string },
+    events: DeviceEvent[],
+    offsetMs = 0,
+  ): Promise<IngestResult> {
+    const [row] = await sql<{ result: IngestResult }[]>`
+      SELECT app.ingest_batch(
+        ${home.deviceId}, ${home.homeId}, ${JSON.stringify(events)}, ${offsetMs}, ${NOW}
+      ) AS result`;
+    if (!row) throw new Error('ingest_batch no devolvió nada');
+    return row.result;
+  }
+
+  async function apply(
+    homeId: string,
+    revision: number,
+    changes: Change[],
+    status: { state: HomeStatus['state']; since: number } | null,
+  ): Promise<ApplyResult> {
+    const [row] = await sql<{ result: ApplyResult }[]>`
+      SELECT app.apply_outages(
+        ${homeId}, ${revision}, ${JSON.stringify(changes)},
+        ${status === null ? null : JSON.stringify(status)}, ${NOW}
+      ) AS result`;
+    if (!row) throw new Error('apply_outages no devolvió nada');
+    return row.result;
+  }
+
+  async function storeOutage(homeId: string, outage: DetectedOutage): Promise<string> {
+    const id = randomUUID();
+    await sql`
+      INSERT INTO app.outages (id, home_id, started_at, ended_at, status, confidence, confirmed, updated_at)
+      VALUES (${id}, ${homeId}, ${outage.start}, ${outage.end}, ${outage.status},
+              ${outage.confidence}, ${outage.confirmed}, ${outage.start})`;
+    return id;
+  }
+
+  async function outagesOf(homeId: string) {
+    return sql<(StoredOutage & { updatedAt: number })[]>`
+      SELECT id, started_at::float8 AS start, ended_at::float8 AS "end", status, confidence,
+             confirmed, updated_at::float8 AS "updatedAt"
+      FROM app.outages WHERE home_id = ${homeId} ORDER BY started_at`;
+  }
+
+  async function homeRow(homeId: string) {
+    const [row] = await sql<{ status: string; since: number; revision: number }[]>`
+      SELECT status, status_since::float8 AS since, ingest_revision::float8 AS revision
+      FROM app.homes WHERE id = ${homeId}`;
+    return row;
+  }
+
+  it('inserta y cuenta duplicados', async () => {
+    const home = await createHome(sql);
+    const events = [snap(0, true, true), snap(5, false, true), snap(6, false, false)];
+
+    const first = await ingest(home, events);
+    expect(first).toMatchObject({ accepted: 3, duplicated: 0 });
+
+    const second = await ingest(home, events);
+    expect(second).toMatchObject({ accepted: 0, duplicated: 3, window: [], outages: [] });
+
+    const [count] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM app.events WHERE home_id = ${home.homeId}`;
+    expect(count?.n).toBe(3);
+  });
+
+  it('device_at queda intacto y at se corrige', async () => {
+    const home = await createHome(sql);
+    const event = snap(0, true, true);
+
+    const result = await ingest(home, [event], 90_000);
+
+    const [row] = await sql<{ deviceAt: number; at: number; receivedAt: number }[]>`
+      SELECT device_at::float8 AS "deviceAt", at::float8 AS at, received_at::float8 AS "receivedAt"
+      FROM app.events WHERE device_id = ${home.deviceId} AND id = ${event.id}`;
+    expect(row).toEqual({ deviceAt: event.at, at: event.at + 90_000, receivedAt: NOW });
+    expect(result.window).toEqual([{ ...event, at: event.at + 90_000 }]);
+  });
+
+  it('la ventana empieza en el último snapshot powered anterior', async () => {
+    const home = await createHome(sql);
+    const stored = [snap(0, true, true), snap(5, false, true), snap(6, false, false)];
+    await ingest(home, stored);
+
+    const latest = snap(100, true, true);
+    const result = await ingest(home, [latest]);
+
+    expect(result.window).toEqual([...stored, latest]);
+    expect(result.window[0]?.at).toBe(at(0));
+  });
+
+  it('la ventana llega hasta el corte que confirma una confirmación tardía', async () => {
+    const home = await createHome(sql);
+    const stored = [
+      snap(0, true, true),
+      snap(5, false, true),
+      snap(6, false, false),
+      snap(125, true, true),
+    ];
+    await ingest(home, stored);
+    const outage: DetectedOutage = {
+      start: at(5),
+      end: at(125),
+      status: 'cerrado',
+      confidence: 'alta',
+      confirmed: null,
+    };
+    const outageId = await storeOutage(home.homeId, outage);
+
+    const late = confirmation(3000, 5, false);
+    const result = await ingest(home, [late]);
+
+    expect(result.outages).toEqual([{ id: outageId, ...outage }]);
+    expect(result.window).toEqual([...stored, late]);
+  });
+
+  it('la ventana incluye el corte abierto aunque sea viejo', async () => {
+    const home = await createHome(sql);
+    const stored = [snap(0, true, true), snap(5, false, true), snap(6, false, false)];
+    await ingest(home, stored);
+    const outage: DetectedOutage = {
+      start: at(5),
+      end: null,
+      status: 'abierto',
+      confidence: 'alta',
+      confirmed: null,
+    };
+    const outageId = await storeOutage(home.homeId, outage);
+
+    const result = await ingest(home, [snap(1400, true, false)]);
+
+    expect(result.outages).toEqual([{ id: outageId, ...outage }]);
+    expect(result.window[0]?.at).toBe(at(0));
+  });
+
+  it('deja fuera de la ventana los cortes sin_datos', async () => {
+    const home = await createHome(sql);
+    await ingest(home, [snap(0, true, true)]);
+    await storeOutage(home.homeId, {
+      start: at(5),
+      end: null,
+      status: 'sin_datos' as DetectedOutage['status'],
+      confidence: 'alta',
+      confirmed: null,
+    });
+
+    const result = await ingest(home, [snap(10, false, false)]);
+
+    expect(result.outages).toEqual([]);
+  });
+
+  it('sube la revisión solo si aceptó algo', async () => {
+    const home = await createHome(sql);
+    const events = [snap(0, true, true)];
+
+    const first = await ingest(home, events);
+    expect(first.revision).toBe(1);
+
+    const second = await ingest(home, events);
+    expect(second.revision).toBe(1);
+    expect((await homeRow(home.homeId))?.revision).toBe(1);
+  });
+
+  it('apply_outages inserta, actualiza y cambia el estado', async () => {
+    const home = await createHome(sql);
+    const { revision } = await ingest(home, [snap(0, true, true)]);
+    const existingId = await storeOutage(home.homeId, {
+      start: at(5),
+      end: null,
+      status: 'abierto',
+      confidence: 'alta',
+      confirmed: null,
+    });
+    const closed: DetectedOutage = {
+      start: at(5),
+      end: at(125),
+      status: 'cerrado',
+      confidence: 'alta',
+      confirmed: null,
+    };
+    const opened: DetectedOutage = {
+      start: at(200),
+      end: null,
+      status: 'abierto',
+      confidence: 'media',
+      confirmed: null,
+    };
+    const newId = randomUUID();
+
+    const result = await apply(
+      home.homeId,
+      revision,
+      [
+        { op: 'insert', id: newId, outage: opened },
+        { op: 'update', id: existingId, outage: closed },
+      ],
+      { state: 'sin_luz', since: opened.start },
+    );
+
+    expect(result).toEqual({
+      applied: true,
+      status: { state: 'sin_luz', since: opened.start, alias: 'Casa', openOutageStart: at(200) },
+    });
+    expect(await outagesOf(home.homeId)).toEqual([
+      { id: existingId, ...closed, updatedAt: NOW },
+      { id: newId, ...opened, updatedAt: NOW },
+    ]);
+    expect(await homeRow(home.homeId)).toMatchObject({ status: 'sin_luz', since: opened.start });
+  });
+
+  it('apply_outages ignora una revisión vieja', async () => {
+    const home = await createHome(sql, { since: at(0) });
+    await ingest(home, [snap(0, true, true)]);
+    await ingest(home, [snap(5, false, false)]);
+    const before = await outagesOf(home.homeId);
+
+    const result = await apply(
+      home.homeId,
+      1,
+      [
+        {
+          op: 'insert',
+          id: randomUUID(),
+          outage: {
+            start: at(5),
+            end: null,
+            status: 'abierto',
+            confidence: 'alta',
+            confirmed: null,
+          },
+        },
+      ],
+      { state: 'sin_luz', since: at(5) },
+    );
+
+    expect(result).toEqual({
+      applied: false,
+      status: { state: 'con_luz', since: at(0), alias: 'Casa', openOutageStart: null },
+    });
+    expect(await outagesOf(home.homeId)).toEqual(before);
+    expect(await homeRow(home.homeId)).toEqual({ status: 'con_luz', since: at(0), revision: 2 });
+  });
+
+  it('apply_outages es atómica', async () => {
+    const home = await createHome(sql, { since: at(0) });
+    const { revision } = await ingest(home, [snap(0, true, true)]);
+    const existingId = await storeOutage(home.homeId, {
+      start: at(5),
+      end: null,
+      status: 'abierto',
+      confidence: 'alta',
+      confirmed: null,
+    });
+    const before = await outagesOf(home.homeId);
+
+    await expect(
+      apply(
+        home.homeId,
+        revision,
+        [
+          {
+            op: 'insert',
+            id: randomUUID(),
+            outage: {
+              start: at(200),
+              end: null,
+              status: 'abierto',
+              confidence: 'alta',
+              confirmed: null,
+            },
+          },
+          {
+            op: 'update',
+            id: existingId,
+            outage: {
+              start: at(5),
+              end: at(125),
+              status: 'roto' as DetectedOutage['status'],
+              confidence: 'alta',
+              confirmed: null,
+            },
+          },
+        ],
+        { state: 'sin_luz', since: at(200) },
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+
+    expect(await outagesOf(home.homeId)).toEqual(before);
+    expect(await homeRow(home.homeId)).toEqual({ status: 'con_luz', since: at(0), revision });
+  });
+});

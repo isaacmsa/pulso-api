@@ -25,6 +25,11 @@ describe('esquema app', () => {
     expect(rls.every((r) => r.relrowsecurity)).toBe(true);
   });
 
+  it('app no tiene políticas de RLS', async () => {
+    const policies = await sql`SELECT policyname FROM pg_policies WHERE schemaname = 'app'`;
+    expect(policies).toHaveLength(0);
+  });
+
   it('pulso_api es dueño del esquema app', async () => {
     const [row] = await sql<{ owner: string }[]>`
       SELECT pg_get_userbyid(nspowner) AS owner FROM pg_namespace WHERE nspname = 'app'`;

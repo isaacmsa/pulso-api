@@ -86,5 +86,5 @@ CREATE INDEX "devices_home" ON "app"."devices" USING btree ("home_id");--> state
 CREATE INDEX "devices_last_seen" ON "app"."devices" USING btree ("last_seen_at");--> statement-breakpoint
 CREATE INDEX "events_home_at" ON "app"."events" USING btree ("home_id","at");--> statement-breakpoint
 CREATE INDEX "follows_follower" ON "app"."follows" USING btree ("follower_device_id");--> statement-breakpoint
-CREATE INDEX "outages_home_started" ON "app"."outages" USING btree ("home_id","started_at" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "outages_home_started" ON "app"."outages" USING btree ("home_id","started_at" DESC NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "outages_open" ON "app"."outages" USING btree ("home_id") WHERE "app"."outages"."status" = 'abierto';

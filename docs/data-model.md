@@ -100,10 +100,50 @@ ALTER TABLE app.homes ENABLE ROW LEVEL SECURITY;   -- y lo mismo en las otras ci
 - **`payload` en `jsonb`** (A-004): los campos del snapshot van a cambiar con la prueba técnica. Zod valida la forma en la entrada, así que agregar un campo no exige migración.
 - **El estado de la casa vive materializado** en `homes.status`. La página pública lee una fila, y el push compara el estado anterior con el nuevo para avisar solo en las transiciones.
 - **Los avisos quedan marcados en `outages`** (`start_notified_at`, `end_notified_at`, `confirm_asked_at`) con un `UPDATE … WHERE start_notified_at IS NULL RETURNING`, antes de enviar. Solo quien gana esa actualización manda el push, así que no se repite aunque el cron corra dos veces.
-- **La ingesta va en funciones de PostgreSQL** (A-004), para gastar pocas consultas de Hyperdrive y que cada paso sea atómico:
-  - `app.ingest_batch(device_id, events jsonb, offset_ms)`: inserta los eventos con `ON CONFLICT DO NOTHING` y devuelve `accepted`, `duplicated`, el modo de la casa, la ventana de eventos y los cortes abiertos.
-  - `app.apply_outages(home_id, outages jsonb, status jsonb)`: aplica en una transacción lo que decidió `reconcileOutages` y el nuevo `homes.status`.
-  - El clasificador no está en SQL: corre en el Worker entre las dos llamadas.
+- **La ingesta va en funciones de PostgreSQL** (A-004), para gastar pocas consultas de Hyperdrive y que cada paso sea atómico. Están en la sección siguiente. El clasificador no está en SQL: corre en el Worker entre las dos llamadas.
+
+## Funciones de ingesta
+
+Viven en `drizzle/0001_ingest_functions.sql`. Son `plpgsql`, `SECURITY INVOKER`, de `pulso_api` y sin `EXECUTE` para `PUBLIC`. Cada llamada es una consulta por Hyperdrive y corre en su propia transacción: o se aplica todo o nada.
+
+```sql
+app.ingest_batch(p_device_id uuid, p_home_id uuid, p_events jsonb,
+                 p_offset_ms bigint, p_received_at bigint) RETURNS jsonb
+-- { accepted, duplicated, revision, mode, window, outages }
+
+app.apply_outages(p_home_id uuid, p_revision bigint, p_changes jsonb,
+                  p_status jsonb, p_now bigint) RETURNS jsonb
+-- { applied, status: { state, since, alias, openOutageStart } }
+```
+
+**`ingest_batch`** guarda cada evento de `p_events` (ya validado por Zod) con `INSERT … ON CONFLICT (device_id, id) DO NOTHING`: `device_at` es su `at` tal cual, `at = device_at + p_offset_ms`, `payload` es el evento original y `received_at = p_received_at`. `duplicated` es lo que no entró.
+
+- Si `accepted = 0`, no sube la revisión y devuelve `window: []` y `outages: []`.
+- Si aceptó algo, sube `homes.ingest_revision` (A-016) y devuelve la revisión nueva, el `mode` de la casa, la ventana y los cortes.
+- `window`: los eventos de la casa en la ventana, ordenados por `(at, id)`. Cada uno es su `payload` con `at` ya corregido.
+- `outages`: `{ id, start, end, status, confidence, confirmed }`, ordenados por `start`. Son los guardados que `reconcileOutages` compara con lo detectado.
+
+**La ventana de la casa:**
+
+```text
+anchor  = mínimo de:
+          · el at más viejo de los eventos aceptados en este lote,
+          · el started_at del corte abierto de la casa, si hay uno,
+          · outageStart − CONFIRMATION_TOLERANCE_MS de cada confirmación aceptada
+from    = at del último snapshot powered de la casa con at < anchor,
+          donde powered = plugged AND coalesce(homeWifi, onWifi) sobre el payload;
+          si no hay ninguno, el at más viejo de la casa
+window  = eventos de la casa con at >= from
+outages = cortes de la casa con status <> 'sin_datos' y (status = 'abierto' o started_at >= from)
+```
+
+Empezar en un snapshot `powered` reproduce el estado exacto del clasificador: armado y sin corte abierto. `outageStart` no lleva desfase, porque es la hora del servidor que el teléfono devuelve. El 300 000 de la función es `CONFIRMATION_TOLERANCE_MS`: si cambia la constante, cambia la función en una migración nueva.
+
+**`apply_outages`** bloquea la casa con `SELECT … FOR UPDATE` y compara `homes.ingest_revision` con `p_revision`. Si otro lote ingirió entretanto, no aplica nada y devuelve `applied: false` con el estado actual (A-016). Si coincide:
+
+- `p_changes` es la salida de `reconcileOutages` con el id ya puesto: `[{ op: 'insert' | 'update', id, outage }]`, con `outage` de tipo `DetectedOutage`. Cada insert y cada update sella `updated_at = p_now`. Un `op` desconocido o un update sin su corte hace fallar toda la llamada.
+- `p_status` es `{ state, since }` (de `deriveHomeStatus`) o `null`. Si cambia algo, se guarda en `homes.status` y `status_since`.
+- `status.openOutageStart` es el `started_at` del corte `abierto` más reciente, o `null`.
 
 ## Retención
 
