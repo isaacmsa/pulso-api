@@ -78,6 +78,7 @@ POST /v1/events (Bearer)
   → si trae eventos: app.ingest_batch(device, home, eventos, offset, ahora)  (consulta 2, una transacción)
        inserta con ON CONFLICT (device_id, id) DO NOTHING y devuelve
        accepted, duplicated, la revisión, la ventana y los cortes de la casa
+  → sin ventana (reenvío sin nada pendiente): listo; con ventana, también con accepted = 0 (A-024):
   → classify y reconcileOutages en el Worker (dominio puro)
   → app.apply_outages(home, revisión, cambios, estado, ahora)  (consulta 3, una transacción)
   ← { accepted, duplicated, status }

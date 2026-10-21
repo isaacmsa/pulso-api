@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { classify } from '../../src/domain/detection/classify';
@@ -9,6 +10,7 @@ import {
 import type { HomeStatus } from '../../src/domain/homes/schema';
 import type { Bindings, RateLimiter } from '../../src/env';
 import { createApp } from '../../src/index';
+import { applyOutages, ingestBatch } from '../../src/modules/events/repo';
 import { ingestEvents } from '../../src/modules/events/service';
 import { at, confirmation, snap } from '../../src/testing/builders';
 import { TEST_SIGNING_KEY, testDb, truncateAll } from './helpers';
@@ -121,6 +123,23 @@ describe('POST /v1/events', () => {
     return row;
   }
 
+  async function pendingAnchorOf(homeId: string) {
+    const [row] = await sql<{ pendingAnchor: number | null }[]>`
+      SELECT pending_anchor::float8 AS "pendingAnchor" FROM app.homes WHERE id = ${homeId}`;
+    return row?.pendingAnchor;
+  }
+
+  /** `ingest_batch` como lo llama el Worker, sin el `apply_outages` que le sigue (el Worker murió). */
+  function ingestOnly(device: { deviceId: string; homeId: string }, events: DeviceEvent[]) {
+    return ingestBatch(sql, {
+      deviceId: device.deviceId,
+      homeId: device.homeId,
+      events,
+      offsetMs: 0,
+      receivedAt: now,
+    });
+  }
+
   it('un latido vacío gasta una consulta', async () => {
     const { token, deviceId } = await registerWithHome();
 
@@ -206,6 +225,81 @@ describe('POST /v1/events', () => {
     const [count] = await sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM app.events WHERE home_id = ${homeId}`;
     expect(count?.n).toBe(events.length);
+  });
+
+  it('un reenvío normal sigue gastando dos consultas', async () => {
+    const { token, homeId } = await registerWithHome();
+    const events = [snap(0, true, true), snap(5, false, false)];
+    const first = await postOk(token, events);
+    expect(await pendingAnchorOf(homeId)).toBeNull();
+    queries = 0;
+
+    const body = await postOk(token, events);
+
+    expect(body).toEqual({ accepted: 0, duplicated: events.length, status: first.status });
+    expect(queries).toBe(2);
+    expect(await pendingAnchorOf(homeId)).toBeNull();
+  });
+
+  it('un reintento después de un apply perdido clasifica', async () => {
+    const { token, deviceId, homeId } = await registerWithHome();
+    const events = [snap(0, true, true), snap(5, false, false)];
+    // el Worker guardó el lote y murió antes de apply_outages: el teléfono no recibió respuesta
+    const lost = await ingestOnly({ deviceId, homeId }, events);
+    expect(lost.accepted).toBe(2);
+    expect(await outagesOf(homeId)).toEqual([]);
+    queries = 0;
+    now += 60_000;
+
+    const body = await postOk(token, events);
+
+    expect(body).toEqual({
+      accepted: 0,
+      duplicated: events.length,
+      status: { state: 'sin_luz', since: at(5), alias: 'Casa', openOutageStart: at(5) },
+    });
+    expect(queries).toBe(3);
+    expect(await outagesOf(homeId)).toMatchObject([
+      { start: at(5), end: null, status: 'abierto', confidence: 'alta' },
+    ]);
+    expect(await homeRow(homeId)).toEqual({ status: 'sin_luz', since: at(5) });
+    expect(await pendingAnchorOf(homeId)).toBeNull();
+  });
+
+  it('un reintento que se cruza no pierde los cortes del lote original', async () => {
+    now = at(-1);
+    const { token, deviceId, homeId } = await registerWithHome();
+    const a = [
+      snap(0, true, true),
+      snap(5, false, true),
+      snap(6, false, false),
+      snap(125, true, true),
+    ];
+    const b = [...a, snap(200, true, true, { internet: false })];
+    now = at(130);
+    // A guarda y clasifica, pero su apply_outages llega después de que B ingiera
+    const ingestedA = await ingestOnly({ deviceId, homeId }, a);
+    const detectedA = classify(ingestedA.window, { mode: ingestedA.mode });
+    expect(detectedA).toMatchObject([{ start: at(5), end: at(125), status: 'cerrado' }]);
+    now = at(201);
+
+    const body = await postOk(token, b);
+    const appliedA = await applyOutages(sql, {
+      homeId,
+      revision: ingestedA.revision,
+      changes: detectedA.map((outage) => ({ op: 'insert' as const, id: randomUUID(), outage })),
+      status: null,
+      now,
+    });
+
+    expect(body).toMatchObject({ accepted: 1, duplicated: a.length });
+    expect(appliedA.applied).toBe(false);
+    expect(await outagesOf(homeId)).toMatchObject([
+      { start: at(5), end: at(125), status: 'cerrado', confidence: 'alta' },
+    ]);
+    // el corte se abrió y se cerró dentro de la ventana: la casa sigue en con_luz desde que se creó
+    expect(await homeRow(homeId)).toEqual({ status: 'con_luz', since: at(-1) });
+    expect(await pendingAnchorOf(homeId)).toBeNull();
   });
 
   it('el desfase de reloj se corrige', async () => {

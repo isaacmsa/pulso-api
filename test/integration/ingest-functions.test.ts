@@ -63,6 +63,16 @@ describe('funciones de ingesta', () => {
     return row.result;
   }
 
+  /** Un lote ya procesado: `ingest_batch` y el `apply_outages` que le sigue (sin cambios). */
+  async function ingestApplied(
+    home: { homeId: string; deviceId: string },
+    events: DeviceEvent[],
+  ): Promise<IngestResult> {
+    const result = await ingest(home, events);
+    await apply(home.homeId, result.revision, [], null);
+    return result;
+  }
+
   async function storeOutage(homeId: string, outage: DetectedOutage): Promise<string> {
     const id = randomUUID();
     await sql`
@@ -86,6 +96,12 @@ describe('funciones de ingesta', () => {
     return row;
   }
 
+  async function pendingAnchorOf(homeId: string) {
+    const [row] = await sql<{ pendingAnchor: number | null }[]>`
+      SELECT pending_anchor::float8 AS "pendingAnchor" FROM app.homes WHERE id = ${homeId}`;
+    return row?.pendingAnchor;
+  }
+
   it('devuelve el estado actual de la casa, también en un reintento', async () => {
     const home = await createHome(sql, { since: at(-60) });
     await sql`UPDATE app.homes SET status = 'sin_luz', status_since = ${at(-10)} WHERE id = ${home.homeId}`;
@@ -104,6 +120,8 @@ describe('funciones de ingesta', () => {
 
     const first = await ingest(home, events);
     expect(first).toMatchObject({ accepted: 3, duplicated: 0 });
+    // el Worker clasificó y aplicó: no queda nada pendiente
+    await apply(home.homeId, first.revision, [], null);
 
     const second = await ingest(home, events);
     expect(second).toMatchObject({ accepted: 0, duplicated: 3, window: [], outages: [] });
@@ -129,7 +147,7 @@ describe('funciones de ingesta', () => {
   it('la ventana empieza en el último snapshot powered anterior', async () => {
     const home = await createHome(sql);
     const stored = [snap(0, true, true), snap(5, false, true), snap(6, false, false)];
-    await ingest(home, stored);
+    await ingestApplied(home, stored);
 
     const latest = snap(100, true, true);
     const result = await ingest(home, [latest]);
@@ -146,7 +164,7 @@ describe('funciones de ingesta', () => {
       snap(6, false, false),
       snap(125, true, true),
     ];
-    await ingest(home, stored);
+    await ingestApplied(home, stored);
     const outage: DetectedOutage = {
       start: at(5),
       end: at(125),
@@ -166,7 +184,7 @@ describe('funciones de ingesta', () => {
   it('la ventana incluye el corte abierto aunque sea viejo', async () => {
     const home = await createHome(sql);
     const stored = [snap(0, true, true), snap(5, false, true), snap(6, false, false)];
-    await ingest(home, stored);
+    await ingestApplied(home, stored);
     const outage: DetectedOutage = {
       start: at(5),
       end: null,
@@ -186,10 +204,10 @@ describe('funciones de ingesta', () => {
     const home = await createHome(sql);
     const armed = snap(0, true, true);
     const sinLuz = report(1, 'sin_luz');
-    await ingest(home, [armed]);
-    await ingest(home, [sinLuz]);
+    await ingestApplied(home, [armed]);
+    await ingestApplied(home, [sinLuz]);
     // un snapshot powered repetido no cierra el corte manual (solo lo cierra entrar en powered)
-    await ingest(home, [snap(2, true, true, { internet: false })]);
+    await ingestApplied(home, [snap(2, true, true, { internet: false })]);
     await storeOutage(home.homeId, {
       start: at(1),
       end: null,
@@ -206,7 +224,7 @@ describe('funciones de ingesta', () => {
 
   it('la ventana empieza en el snapshot powered más reciente antes del ancla, no en uno más viejo', async () => {
     const home = await createHome(sql);
-    await ingest(home, [
+    await ingestApplied(home, [
       snap(-30, false, false),
       snap(-20, true, true),
       snap(0, true, true),
@@ -220,7 +238,7 @@ describe('funciones de ingesta', () => {
 
   it('si el lote empieza con un snapshot powered, la ventana arranca en el powered anterior', async () => {
     const home = await createHome(sql);
-    await ingest(home, [snap(0, true, true)]);
+    await ingestApplied(home, [snap(0, true, true)]);
 
     const result = await ingest(home, [
       snap(100, true, true, { internet: false }),
@@ -234,10 +252,10 @@ describe('funciones de ingesta', () => {
     const home = await createHome(sql);
     const armed = snap(0, true, true);
     const sinLuz = report(1, 'sin_luz');
-    await ingest(home, [armed]);
-    await ingest(home, [sinLuz]);
-    await ingest(home, [snap(2, true, true, { internet: false })]);
-    await ingest(home, [report(60, 'hay_luz')]);
+    await ingestApplied(home, [armed]);
+    await ingestApplied(home, [sinLuz]);
+    await ingestApplied(home, [snap(2, true, true, { internet: false })]);
+    await ingestApplied(home, [report(60, 'hay_luz')]);
     const outage: DetectedOutage = {
       start: at(1),
       end: at(60),
@@ -257,7 +275,7 @@ describe('funciones de ingesta', () => {
 
   it('deja fuera de la ventana los cortes sin_datos', async () => {
     const home = await createHome(sql);
-    await ingest(home, [snap(0, true, true)]);
+    await ingestApplied(home, [snap(0, true, true)]);
     await storeOutage(home.homeId, {
       start: at(5),
       end: null,
@@ -271,16 +289,92 @@ describe('funciones de ingesta', () => {
     expect(result.outages).toEqual([]);
   });
 
-  it('sube la revisión solo si aceptó algo', async () => {
+  it('sube la revisión solo si aceptó algo o quedó algo sin clasificar', async () => {
     const home = await createHome(sql);
     const events = [snap(0, true, true)];
 
     const first = await ingest(home, events);
     expect(first.revision).toBe(1);
+    await apply(home.homeId, first.revision, [], null);
 
     const second = await ingest(home, events);
     expect(second.revision).toBe(1);
     expect((await homeRow(home.homeId))?.revision).toBe(1);
+  });
+
+  it('guarda el ancla del lote como pendiente y apply_outages la borra', async () => {
+    const home = await createHome(sql);
+    expect(await pendingAnchorOf(home.homeId)).toBeNull();
+
+    const { revision } = await ingest(home, [snap(0, true, true), snap(5, false, false)]);
+    expect(await pendingAnchorOf(home.homeId)).toBe(at(0));
+
+    await apply(home.homeId, revision, [], null);
+    expect(await pendingAnchorOf(home.homeId)).toBeNull();
+  });
+
+  it('apply_outages con una revisión vieja deja el ancla pendiente', async () => {
+    const home = await createHome(sql);
+    const first = await ingest(home, [snap(0, true, true)]);
+    await ingest(home, [snap(5, false, false)]);
+
+    const result = await apply(home.homeId, first.revision, [], null);
+
+    expect(result.applied).toBe(false);
+    expect(await pendingAnchorOf(home.homeId)).toBe(at(0));
+  });
+
+  it('el ancla pendiente más vieja gana sobre la del lote nuevo', async () => {
+    const home = await createHome(sql);
+    const original = [snap(0, true, true), snap(5, false, true), snap(6, false, false)];
+    await ingest(home, original);
+    const powered = snap(125, true, true);
+    await ingest(home, [powered]);
+
+    // sin el ancla pendiente, la ventana empezaría en el snapshot powered del minuto 125
+    const latest = snap(200, true, true, { internet: false });
+    const result = await ingest(home, [latest]);
+
+    expect(result.window).toEqual([...original, powered, latest]);
+    expect(await pendingAnchorOf(home.homeId)).toBe(at(0));
+  });
+
+  it('un reintento sin apply sube la revisión y devuelve la ventana desde el ancla pendiente', async () => {
+    const home = await createHome(sql);
+    const events = [snap(0, true, true), snap(5, false, false)];
+    const first = await ingest(home, events);
+
+    const retry = await ingest(home, events);
+
+    expect(retry).toMatchObject({ accepted: 0, duplicated: 2, revision: first.revision + 1 });
+    expect(retry.window).toEqual(events);
+    expect(await homeRow(home.homeId)).toMatchObject({ revision: first.revision + 1 });
+  });
+
+  it('un reintento reproduce la misma ventana aunque el ancla caiga dentro de un corte guardado', async () => {
+    const home = await createHome(sql);
+    await ingestApplied(home, [snap(0, true, true)]);
+    await ingestApplied(home, [report(1, 'sin_luz')]);
+    await ingestApplied(home, [snap(2, true, true, { internet: false })]);
+    await ingestApplied(home, [report(60, 'hay_luz')]);
+    await storeOutage(home.homeId, {
+      start: at(1),
+      end: at(60),
+      status: 'cerrado',
+      confidence: 'manual',
+      confirmed: null,
+    });
+    const late = [snap(30, false, false)];
+    const first = await ingest(home, late);
+    // se guarda el ancla del evento, no la ampliada por el corte: el corte se vuelve a leer
+    expect(await pendingAnchorOf(home.homeId)).toBe(at(30));
+
+    const retry = await ingest(home, late);
+
+    expect(retry.accepted).toBe(0);
+    expect(retry.window).toEqual(first.window);
+    expect(retry.outages).toEqual(first.outages);
+    expect(retry.window[0]?.at).toBe(at(0));
   });
 
   it('apply_outages inserta, actualiza y cambia el estado', async () => {

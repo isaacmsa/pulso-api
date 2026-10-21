@@ -2,9 +2,14 @@
 -- consulta por Hyperdrive y corre en la transacción de esa consulta: o se aplica todo o nada.
 -- El clasificador no está aquí: corre en el Worker entre las dos llamadas.
 
+-- El ancla más vieja que ingest_batch guardó y ningún apply_outages aplicó todavía (A-024).
+-- NULL = todo lo guardado ya está clasificado. Va aquí, junto a las funciones que la usan.
+ALTER TABLE "app"."homes" ADD COLUMN "pending_anchor" bigint;
+--> statement-breakpoint
+
 -- Guarda un lote sin duplicar (por device_id, id), sube la revisión de la casa (A-016) si
--- aceptó algo y devuelve la ventana que el Worker tiene que clasificar, con el estado de la casa
--- leído bajo el mismo candado (A-023).
+-- aceptó algo o si quedó algo sin clasificar (A-024) y devuelve la ventana que el Worker tiene
+-- que clasificar, con el estado de la casa leído bajo el mismo candado (A-023).
 CREATE FUNCTION app.ingest_batch(
   p_device_id uuid,
   p_home_id uuid,
@@ -48,30 +53,48 @@ BEGIN
   FROM inserted;
 
   IF v_accepted = 0 THEN
-    SELECT ingest_revision, mode, status, status_since
-    INTO v_revision, v_mode, v_status, v_status_since
-    FROM app.homes WHERE id = p_home_id;
-    RETURN jsonb_build_object(
-      'accepted', 0,
-      'duplicated', v_total,
-      'revision', v_revision,
-      'mode', v_mode,
-      'status', jsonb_build_object('state', v_status, 'since', v_status_since),
-      'window', '[]'::jsonb,
-      'outages', '[]'::jsonb
-    );
+    -- Un reenvío. Si algo quedó sin clasificar (un apply_outages perdido o rechazado), se clasifica
+    -- otra vez desde el ancla pendiente como si el lote fuera nuevo: si no, esos eventos no se
+    -- clasificarían nunca. El WHERE se vuelve a evaluar con la fila bloqueada (A-024).
+    UPDATE app.homes SET ingest_revision = ingest_revision + 1
+    WHERE id = p_home_id AND pending_anchor IS NOT NULL
+    RETURNING ingest_revision, mode, status, status_since, pending_anchor
+    INTO v_revision, v_mode, v_status, v_status_since, v_anchor;
+
+    IF NOT FOUND THEN
+      SELECT ingest_revision, mode, status, status_since
+      INTO v_revision, v_mode, v_status, v_status_since
+      FROM app.homes WHERE id = p_home_id;
+      RETURN jsonb_build_object(
+        'accepted', 0,
+        'duplicated', v_total,
+        'revision', v_revision,
+        'mode', v_mode,
+        'status', jsonb_build_object('state', v_status, 'since', v_status_since),
+        'window', '[]'::jsonb,
+        'outages', '[]'::jsonb
+      );
+    END IF;
+  ELSE
+    -- Toma el candado de la casa: un lote en paralelo espera aquí y, al seguir, ya ve estos
+    -- eventos. El estado sale de esta misma fila: incluye todo apply_outages que aplicó antes, y
+    -- la revisión nueva impide que otro aplique después sin que apply_outages de este lote lo
+    -- note (A-023). El ancla del lote se junta con la pendiente (least ignora NULL): si el
+    -- apply_outages de otro lote se perdió o lo rechazó la revisión, esta ventana también cubre
+    -- sus eventos (A-024).
+    v_anchor := least(v_oldest_at, v_confirmation_anchor);
+    UPDATE app.homes
+    SET ingest_revision = ingest_revision + 1,
+        pending_anchor = least(pending_anchor, v_anchor)
+    WHERE id = p_home_id
+    RETURNING ingest_revision, mode, status, status_since, pending_anchor
+    INTO v_revision, v_mode, v_status, v_status_since, v_anchor;
   END IF;
 
-  -- Toma el candado de la casa: un lote en paralelo espera aquí y, al seguir, ya ve estos eventos.
-  -- El estado sale de esta misma fila: incluye todo apply_outages que aplicó antes, y la revisión
-  -- nueva impide que otro aplique después sin que apply_outages de este lote lo note (A-023).
-  UPDATE app.homes SET ingest_revision = ingest_revision + 1
-  WHERE id = p_home_id
-  RETURNING ingest_revision, mode, status, status_since
-  INTO v_revision, v_mode, v_status, v_status_since;
-
-  v_anchor := least(v_oldest_at, v_confirmation_anchor);
-
+  -- pending_anchor guarda el ancla antes de ampliarla por los cortes guardados: los cortes se
+  -- vuelven a leer aquí en cada llamada, y mientras quede algo pendiente ningún apply_outages los
+  -- cambió, así que un reintento reproduce la misma ventana.
+  --
   -- Si el ancla cae dentro de un corte guardado (abierto, o que terminó en el ancla o después),
   -- la ventana arranca antes de ese corte. Un corte manual sigue abierto aunque haya snapshots
   -- powered repetidos dentro: empezar a mitad de corte haría que el clasificador inventara otro.
@@ -139,7 +162,8 @@ REVOKE EXECUTE ON FUNCTION app.ingest_batch(uuid, uuid, jsonb, bigint, bigint) F
 --> statement-breakpoint
 
 -- Aplica lo que decidió reconcileOutages y el estado nuevo de la casa, solo si nadie más
--- ingirió desde que se calculó (A-016). Devuelve el estado de la casa tal como queda.
+-- ingirió desde que se calculó (A-016), y entonces borra el ancla pendiente (A-024). Devuelve el
+-- estado de la casa tal como queda.
 CREATE FUNCTION app.apply_outages(
   p_home_id uuid,
   p_revision bigint,
@@ -209,6 +233,11 @@ BEGIN
         AND (status, status_since)
             IS DISTINCT FROM (p_status->>'state', (p_status->>'since')::bigint);
     END IF;
+
+    -- La revisión coincide: la ventana que se clasificó arrancó en el ancla pendiente o antes,
+    -- así que ya no queda nada sin clasificar (A-024).
+    UPDATE app.homes SET pending_anchor = NULL
+    WHERE id = p_home_id AND pending_anchor IS NOT NULL;
   END IF;
 
   SELECT * INTO v_home FROM app.homes WHERE id = p_home_id;

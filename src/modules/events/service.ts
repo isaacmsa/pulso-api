@@ -15,7 +15,8 @@ type HomeDevice = { id: string; homeId: string; home: NonNullable<AuthedDevice['
 /**
  * Guarda el lote, clasifica la ventana de la casa y aplica los cortes y el estado (docs/api.md,
  * "Qué hace POST /v1/events"). La auth (consulta 1) ya corrió; aquí van la 2 (`ingest_batch`) y,
- * solo si entró algún evento nuevo, la 3 (`apply_outages`).
+ * solo si `ingest_batch` devolvió una ventana, la 3 (`apply_outages`): cuando entró algún evento
+ * nuevo o quedó algo sin clasificar de un lote anterior (A-024).
  */
 export async function ingestEvents(
   sql: postgres.Sql,
@@ -36,7 +37,9 @@ export async function ingestEvents(
     receivedAt,
   });
   const { accepted, duplicated } = ingested;
-  if (accepted === 0) return { accepted, duplicated, status: current };
+  // Sin ventana no hay nada que clasificar: un reenvío normal (2 consultas). Con `accepted = 0`
+  // llega ventana solo si un apply_outages anterior se perdió o lo rechazó la revisión (A-024).
+  if (ingested.window.length === 0) return { accepted, duplicated, status: current };
 
   const detected = classify(ingested.window, { mode: ingested.mode });
   const changes = reconcileOutages(ingested.outages, detected).map(
@@ -57,7 +60,7 @@ export async function ingestEvents(
     now: receivedAt,
   });
   if (!applied.applied) {
-    // otro lote de la misma casa ingirió entretanto y ya clasificó con estos eventos (A-016)
+    // otro lote de la misma casa ingirió entretanto y clasifica también estos eventos (A-016, A-024)
     console.log('apply_outages sin aplicar', {
       homeId: device.homeId,
       revision: ingested.revision,

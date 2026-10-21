@@ -31,6 +31,8 @@ export const homes = app
       statusSince: epochMs('status_since').notNull(),
       // A-016: ingest_batch la sube y apply_outages solo aplica si no cambió
       ingestRevision: bigint('ingest_revision', { mode: 'number' }).notNull().default(0),
+      // A-024: el ancla más vieja que ingest_batch guardó y ningún apply_outages aplicó; NULL = nada pendiente
+      pendingAnchor: epochMs('pending_anchor'),
       createdAt: epochMs('created_at').notNull(),
     },
     (t) => [
