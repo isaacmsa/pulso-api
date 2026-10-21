@@ -2,6 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import { createDb } from '../../src/db/client';
 
+/** Claves de firma de los tokens, solo para los tests (base64url de 35 y 36 bytes). */
+export const TEST_SIGNING_KEY = Buffer.from('pulso-test-signing-key-0123456789').toString(
+  'base64url',
+);
+export const OTHER_SIGNING_KEY = Buffer.from('pulso-other-signing-key-987654321').toString(
+  'base64url',
+);
+
 /** Conexión a la base de test (`TEST_DATABASE_URL`), con el mismo cliente que usa el Worker. */
 export function testDb(options?: { onQuery?: () => void }) {
   const url = process.env.TEST_DATABASE_URL;

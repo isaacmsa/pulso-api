@@ -34,8 +34,8 @@ pulso-api/
 │  ├─ db/
 │  │  ├─ schema.ts              # tablas de Drizzle en el esquema `app` (ver docs/data-model.md)
 │  │  └─ client.ts              # postgres(env.HYPERDRIVE.connectionString) + drizzle, por petición
-│  ├─ lib/crypto.ts             # token, SHA-256 y código para compartir (Web Crypto)
-│  ├─ middleware/               # db (cliente por petición), auth (hash del token), rate-limit,
+│  ├─ lib/crypto.ts             # token firmado con HMAC, SHA-256 y código para compartir (Web Crypto)
+│  ├─ middleware/               # db (cliente por petición), auth (firma y hash del token), rate-limit,
 │  │                            # errores { error: { code, message } }
 │  ├─ domain/                   # lógica pura: sin Hono ni base de datos, testeada con Vitest en Node
 │  │  ├─ events/schema.ts       # contrato de eventos y lotes
@@ -99,7 +99,7 @@ La consulta 1 es un `UPDATE … SET last_seen_at = … WHERE token_hash = … RE
 
 Los dos proyectos de Supabase gratuitos se usan uno para staging y otro para producción. Ambos en la región `us-east-1`, la más cercana a Venezuela. Producción se crea en la fase 2, cuando empieza a recibir tráfico: un proyecto sin uso se pausa a la semana (A-018). Staging se pausa si pasa una semana sin uso; se reactiva desde el panel. Cada Hyperdrive va con la caché de consultas desactivada (A-015).
 
-Secretos: la cadena de conexión vive en la configuración de Hyperdrive de cada entorno, no en el código. El resto se carga con `wrangler secret put --env <entorno>`; en local, en `.dev.vars` (en `.gitignore`). En la v1 son `EXPO_ACCESS_TOKEN` (desde la fase 3) y `SENTRY_DSN` (desde la fase 4). Staging y producción nunca comparten secretos ni contraseñas de base.
+Secretos: la cadena de conexión vive en la configuración de Hyperdrive de cada entorno, no en el código. El resto se carga con `wrangler secret put --env <entorno>`; en local, en `.dev.vars` (en `.gitignore`). En la v1 son `TOKEN_SIGNING_KEY` (desde la fase 1; rotarla invalida todos los tokens, A-021), `EXPO_ACCESS_TOKEN` (desde la fase 3) y `SENTRY_DSN` (desde la fase 4). Staging y producción nunca comparten secretos ni contraseñas de base.
 
 ## Seguridad de Supabase
 

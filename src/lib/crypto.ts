@@ -5,18 +5,73 @@ const SHARE_CODE_LENGTH = 8;
 // El mayor múltiplo de 31 que cabe en un byte: los bytes desde aquí se descartan para no sesgar.
 const SHARE_CODE_BYTE_LIMIT = 256 - (256 % SHARE_CODE_ALPHABET.length);
 
-/** Token del dispositivo: 32 bytes aleatorios en base64url sin relleno (43 caracteres). */
-export function generateToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
+const MIN_KEY_BYTES = 32;
+const encoder = new TextEncoder();
+
+function toBase64url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes))
     .replaceAll('+', '-')
     .replaceAll('/', '_')
     .replace(/=+$/, '');
 }
 
+function fromBase64url(text: string): Uint8Array<ArrayBuffer> | null {
+  if (!/^[A-Za-z0-9_-]*$/.test(text)) return null;
+  try {
+    return Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), (c) =>
+      c.charCodeAt(0),
+    );
+  } catch {
+    return null;
+  }
+}
+
+// Una sola entrada por isolate: la clave es la misma en todas las peticiones.
+let cachedKey: { raw: string; key: Promise<CryptoKey> } | undefined;
+
+/** La clave HMAC a partir de `TOKEN_SIGNING_KEY` (base64url de al menos 32 bytes). */
+function signingKey(raw: string): Promise<CryptoKey> {
+  if (cachedKey?.raw === raw) return cachedKey.key;
+  const bytes = fromBase64url(raw);
+  if (!bytes || bytes.length < MIN_KEY_BYTES) {
+    throw new Error(`TOKEN_SIGNING_KEY debe ser base64url de al menos ${MIN_KEY_BYTES} bytes`);
+  }
+  const key = crypto.subtle.importKey('raw', bytes, { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+    'verify',
+  ]);
+  cachedKey = { raw, key };
+  return key;
+}
+
+/**
+ * Token del dispositivo: `<aleatorio>.<firma>`. El aleatorio son 32 bytes en base64url sin relleno
+ * (43 caracteres) y la firma es el HMAC-SHA256 de ese texto con `TOKEN_SIGNING_KEY` (otros 43).
+ */
+export async function generateToken(signingKeyRaw: string): Promise<string> {
+  const key = await signingKey(signingKeyRaw);
+  const random = toBase64url(crypto.getRandomValues(new Uint8Array(32)));
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(random));
+  return `${random}.${toBase64url(new Uint8Array(signature))}`;
+}
+
+/**
+ * Comprueba la firma de un token sin tocar la base. La comparación es en tiempo constante
+ * (`subtle.verify`). Una forma que no sea `<aleatorio>.<firma>` es `false`.
+ */
+export async function verifyToken(signingKeyRaw: string, token: string): Promise<boolean> {
+  const key = await signingKey(signingKeyRaw);
+  const parts = token.split('.');
+  if (parts.length !== 2) return false;
+  const [random = '', signature = ''] = parts;
+  const signatureBytes = fromBase64url(signature);
+  if (!random || !signatureBytes?.length) return false;
+  return crypto.subtle.verify('HMAC', key, signatureBytes, encoder.encode(random));
+}
+
 /** SHA-256 en hexadecimal. Es lo único que se guarda del token. */
 export async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(value));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 

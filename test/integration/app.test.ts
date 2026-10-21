@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { createRoute, z } from '@hono/zod-openapi';
+import { HTTPException } from 'hono/http-exception';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bindings, RateLimiter } from '../../src/env';
 import { createApp } from '../../src/index';
 import { generateToken, sha256Hex } from '../../src/lib/crypto';
 import { authenticate, requireDevice, requireToken } from '../../src/middleware/auth';
+import { errorSchema } from '../../src/middleware/errors';
 import { rateLimit } from '../../src/middleware/rate-limit';
-import { createHome, testDb, truncateAll } from './helpers';
+import { createHome, OTHER_SIGNING_KEY, TEST_SIGNING_KEY, testDb, truncateAll } from './helpers';
 
 const NOW = 1_700_000_000_000; // en el pasado: requireDevice usa la hora real
-const token = generateToken();
+const token = await generateToken(TEST_SIGNING_KEY);
 const bearer = { Authorization: `Bearer ${token}` };
 
 function limiter(success = true): RateLimiter & { keys: string[] } {
@@ -32,6 +34,7 @@ function testEnv(overrides: Partial<Bindings> = {}): Bindings {
     RATE_LIMIT_EVENTS: limiter(),
     RATE_LIMIT_API: limiter(),
     ENVIRONMENT: 'test',
+    TOKEN_SIGNING_KEY: TEST_SIGNING_KEY,
     ...overrides,
   };
 }
@@ -53,6 +56,9 @@ function appForTest(options: { onQuery?: () => void } = {}) {
   );
   app.get('/__boom', () => {
     throw new Error(`boom ${token}`);
+  });
+  app.get('/__http/:status', (c) => {
+    throw new HTTPException(Number(c.req.param('status')) as 401);
   });
   app.openapi(probeBody, (c) => c.json({ n: c.req.valid('json').n }, 200));
   return app;
@@ -223,5 +229,96 @@ describe('worker', () => {
     // el log lleva el error, pero nunca el token
     expect(log).toHaveBeenCalled();
     expect(JSON.stringify(log.mock.calls)).not.toContain(token);
+  });
+
+  it('un Authorization mal formado no revuelve el log al taparlo', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await appForTest().request(
+      '/__boom',
+      { headers: { Authorization: 'Bearer e' } },
+      testEnv(),
+    );
+    expect(res.status).toBe(500);
+    const logged = JSON.stringify(log.mock.calls);
+    expect(logged).not.toContain('[token]');
+    expect(logged).toContain('Error: boom');
+  });
+
+  it('un token bien formado sí se tapa en el log', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await appForTest().request('/__boom', { headers: bearer }, testEnv());
+    const logged = JSON.stringify(log.mock.calls);
+    expect(logged).toContain('[token]');
+    expect(logged).not.toContain(token);
+  });
+
+  it.each([
+    [401, 'invalid_token'],
+    [404, 'not_found'],
+    [429, 'rate_limited'],
+    [413, 'validation_failed'],
+  ] as const)(
+    'una HTTPException %i responde con su estado y el código %s',
+    async (status, code) => {
+      const res = await appForTest().request(`/__http/${status}`, {}, testEnv());
+      expect(res.status).toBe(status);
+      expect(await res.json()).toEqual({ error: { code, message: expect.any(String) } });
+    },
+  );
+
+  it('una HTTPException 5xx responde internal_error', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await appForTest().request('/__http/503', {}, testEnv());
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('internal_error');
+  });
+
+  it('el esquema de error lista los códigos', () => {
+    expect(errorSchema.shape.error.shape.code.options).toEqual([
+      'validation_failed',
+      'invalid_token',
+      'not_found',
+      'home_exists',
+      'rate_limited',
+      'internal_error',
+    ]);
+  });
+
+  describe('firma del token', () => {
+    const [random = '', sig = ''] = token.split('.');
+
+    async function expectRejectedWithoutQuery(authorization: string, env?: Partial<Bindings>) {
+      let queries = 0;
+      const api = limiter();
+      const app = appForTest({ onQuery: () => queries++ });
+      const res = await app.request(
+        '/__probe',
+        { headers: { Authorization: authorization } },
+        testEnv({ RATE_LIMIT_API: api, ...env }),
+      );
+      expect(res.status).toBe(401);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe('invalid_token');
+      expect(queries).toBe(0);
+      expect(api.keys).toEqual([]); // ni siquiera llega al límite
+    }
+
+    it('un token con firma inválida no llega a la base', async () => {
+      const flipped = `${sig.startsWith('A') ? 'B' : 'A'}${sig.slice(1)}`;
+      await expectRejectedWithoutQuery(`Bearer ${random}.${flipped}`);
+    });
+
+    it('un token sin firma no llega a la base', async () => {
+      await expectRejectedWithoutQuery(`Bearer ${random}`);
+    });
+
+    it('un token firmado con otra clave es rechazado', async () => {
+      await expectRejectedWithoutQuery(`Bearer ${token}`, { TOKEN_SIGNING_KEY: OTHER_SIGNING_KEY });
+    });
+
+    it('un token válido de verdad autentica', async () => {
+      await homeWithToken();
+      const res = await appForTest().request('/__probe', { headers: bearer }, testEnv());
+      expect(res.status).toBe(200);
+    });
   });
 });

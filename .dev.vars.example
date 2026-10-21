@@ -1,7 +1,13 @@
 # Secretos del Worker en local. Cópialo a .dev.vars (que no se versiona): si existe,
 # `wrangler dev` lo lee en vez de .env, y las variables de los tests no llegan al Worker.
-# En la fase 1 no hay secretos. Desde la fase 3: EXPO_ACCESS_TOKEN; desde la fase 4: SENTRY_DSN.
+# TOKEN_SIGNING_KEY firma los tokens de los dispositivos (A-021). Genera uno propio, de más de
+# 32 bytes aleatorios en base64url:
+#   openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
+# Cambiarlo invalida todos los tokens. En staging: `wrangler secret put TOKEN_SIGNING_KEY --env staging`.
+# Desde la fase 3: EXPO_ACCESS_TOKEN; desde la fase 4: SENTRY_DSN.
 #
 # Si `wrangler dev` no acepta el `localConnectionString` de wrangler.jsonc, la cadena local
 # se puede pasar así (es la del contenedor de desarrollo, no secreta):
 # CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=postgres://pulso_api:pulso_dev@localhost:54322/pulso_dev
+
+TOKEN_SIGNING_KEY=genera-uno-con-openssl

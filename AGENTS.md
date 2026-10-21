@@ -50,12 +50,12 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 4. **La ingesta es idempotente por `(device_id, id)`** y atómica: va dentro de `app.ingest_batch` y `app.apply_outages`.
 5. **Cuidar el presupuesto de consultas** (Hyperdrive gratis: 100.000 al día). El latido es una sola consulta y un lote no pasa de tres. Una ruta nueva que agregue consultas por petición lo justifica en su PR.
 6. **El contrato en `/v1` solo cambia de forma aditiva.** Los lotes de `test/fixtures/` (uno por versión de la app publicada) tienen que seguir validando. `openapi.json` se regenera en el mismo commit, y el CI lo verifica.
-7. **Los tokens se guardan solo como SHA-256.** Nunca en logs, respuestas (salvo la única vez en `POST /v1/devices`) ni en Sentry.
+7. **Los tokens se guardan solo como SHA-256** (del token completo, `<aleatorio>.<firma>`). Nunca en logs, respuestas (salvo la única vez en `POST /v1/devices`) ni en Sentry. **El Worker verifica la firma HMAC (`TOKEN_SIGNING_KEY`) antes de cualquier consulta**: un token sin firma válida responde 401 sin tocar la base (A-021).
 8. **Nada de Pulso es accesible por la API REST de Supabase**: esquema `app`, RLS activado sin políticas, rol `pulso_api` dueño. Las claves `anon` y `service_role` no se usan.
 9. **Límites por dispositivo, no por IP**, salvo en el registro y en las páginas públicas (CGNAT).
 10. **Cada cambio de esquema es una migración nueva generada por `drizzle-kit`.** Nunca editar una ya aplicada. Las migraciones solo agregan, para que `wrangler rollback` funcione, y se aplican antes de desplegar el código.
 11. **Ningún push se repite**: se marca en `outages` con `UPDATE … WHERE …_notified_at IS NULL RETURNING` antes de enviar.
-12. **Secretos con `wrangler secret put`**; la cadena de conexión, solo en Hyperdrive y en los secretos de GitHub; en local, en `.dev.vars` (en `.gitignore`). Nada secreto en `wrangler.jsonc`.
+12. **Secretos con `wrangler secret put`**; la cadena de conexión, solo en Hyperdrive y en los secretos de GitHub; en local, en `.dev.vars` (en `.gitignore`), que lleva también `TOKEN_SIGNING_KEY` (genéralo con `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='`; rotarlo invalida todos los tokens). Nada secreto en `wrangler.jsonc`.
 13. **Al terminar una tarea, márcala en `docs/roadmap.md` en el mismo commit**, y registra las decisiones internas en `docs/decisions.md`.
 
 ## Trampas conocidas

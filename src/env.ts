@@ -18,6 +18,8 @@ export type Bindings = {
   RATE_LIMIT_REGISTER: RateLimiter;
   RATE_LIMIT_EVENTS: RateLimiter;
   RATE_LIMIT_API: RateLimiter;
+  /** Secreto de Worker: base64url de al menos 32 bytes con el que se firman los tokens. */
+  TOKEN_SIGNING_KEY: string;
   ENVIRONMENT: string;
   EXPOSE_DOCS?: string;
 };

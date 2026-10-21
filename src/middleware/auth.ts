@@ -4,10 +4,9 @@ import type { HomeMode } from '../domain/detection/types';
 import type { Diagnostics } from '../domain/events/schema';
 import type { HomeStatus } from '../domain/homes/schema';
 import type { AppEnv, AuthedDevice } from '../env';
-import { sha256Hex } from '../lib/crypto';
+import { sha256Hex, verifyToken } from '../lib/crypto';
+import { bearerToken } from './bearer';
 import { apiError } from './errors';
-
-const BEARER = /^Bearer +([A-Za-z0-9_-]{43})$/i;
 
 type AuthRow = {
   id: string;
@@ -70,10 +69,13 @@ function invalidToken(c: Parameters<MiddlewareHandler<AppEnv>>[0]) {
   return apiError(c, 401, 'invalid_token', 'El token falta o no es válido.');
 }
 
-/** Lee el `Bearer` y pone `tokenHash`. Sin token responde 401 sin tocar la base. */
+/**
+ * Lee el `Bearer`, verifica su firma y pone `tokenHash` (el SHA-256 del token completo). Un token
+ * ausente, mal formado o con firma inválida responde 401 sin tocar la base ni el límite.
+ */
 export const requireToken: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const token = BEARER.exec(c.req.header('authorization') ?? '')?.[1];
-  if (!token) return invalidToken(c);
+  const token = bearerToken(c.req.header('authorization'));
+  if (!token || !(await verifyToken(c.env.TOKEN_SIGNING_KEY, token))) return invalidToken(c);
   c.set('tokenHash', await sha256Hex(token));
   await next();
 };

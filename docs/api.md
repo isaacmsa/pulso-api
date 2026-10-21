@@ -7,7 +7,7 @@
 - Cómo se publica el contrato OpenAPI que consume la app
 - Cómo se limitan las peticiones y cuándo sale cada push
 
-Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Cada ruta se define con `createRoute` de `@hono/zod-openapi` (A-002): el mismo esquema Zod valida la petición y genera el contrato. `openapi.json` (versionado en la raíz del repo y servido en `GET /openapi.json`) es el contrato que consume la app.
+Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Para la app el token es opaco: lo guarda tal cual lo devuelve `POST /v1/devices`. Por dentro es `<aleatorio>.<firma>` (A-021): el Worker verifica la firma HMAC antes de consultar la base, y un token sin firma válida responde `401 invalid_token` sin tocar la base ni el límite. Cada ruta se define con `createRoute` de `@hono/zod-openapi` (A-002): el mismo esquema Zod valida la petición y genera el contrato. `openapi.json` (versionado en la raíz del repo y servido en `GET /openapi.json`) es el contrato que consume la app.
 
 ## Endpoints
 
@@ -38,7 +38,7 @@ Errores: `{ error: { code, message } }`.
 | HTTP | `code` |
 | --- | --- |
 | 400 | `validation_failed` (incluye `issues` de Zod) |
-| 401 | `invalid_token` |
+| 401 | `invalid_token` (falta el token, está mal formado o su firma no es válida) |
 | 404 | `not_found` (por ejemplo, un código inexistente) |
 | 409 | `home_exists` (el dispositivo ya vigila una casa) |
 | 429 | `rate_limited` (incluye la cabecera `Retry-After: 60`) |
@@ -145,7 +145,7 @@ Muchos usuarios de CANTV, Digitel y Movistar comparten IP (CGNAT), y cuando vuel
 | Resto con token | Dispositivo | 120 por minuto |
 | `GET /c/:code` | IP | 60 por minuto, con caché de 30 s |
 
-Se usa el binding Rate Limiting de Workers, con clave por dispositivo, o por IP en las rutas públicas (A-009). El binding solo admite periodos de 10 o 60 segundos. La clave por dispositivo es el SHA-256 del token, así que el límite corre antes de tocar la base, y sin token la petición responde 401 sin consultarla. El teléfono espera entre 0 y 60 segundos al azar antes de subir tras recuperar la red, para no llegar todos en el mismo segundo.
+Se usa el binding Rate Limiting de Workers, con clave por dispositivo, o por IP en las rutas públicas (A-009). El binding solo admite periodos de 10 o 60 segundos. La clave por dispositivo es el SHA-256 del token, así que el límite corre antes de tocar la base, y un token ausente, mal formado o con firma inválida responde 401 sin consultarla ni llegar al límite (A-021). El teléfono espera entre 0 y 60 segundos al azar antes de subir tras recuperar la red, para no llegar todos en el mismo segundo.
 
 ## Cuándo sale cada push
 
