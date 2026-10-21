@@ -8,3 +8,6 @@ export const TRANSITION_MS = 3 * MINUTE_MS;
 
 /** Cuánto puede separarse `outageStart` de una confirmación del inicio real. */
 export const CONFIRMATION_TOLERANCE_MS = 5 * MINUTE_MS;
+
+/** Cuánto puede moverse el `start` de un corte entre dos clasificaciones y seguir siendo el mismo. */
+export const RECONCILE_TOLERANCE_MS = 5 * MINUTE_MS;

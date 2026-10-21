@@ -83,6 +83,23 @@ Con corte abierto:
 
 En el servidor, un corte `abierto` que pasa 24 horas sin eventos nuevos queda `sin_datos` y no suma horas. Es una regla de tiempo y vive en el cron `sweep`, no en el clasificador.
 
+## Del clasificador a la base
+
+`classify` devuelve los cortes de la ventana de la casa. `reconcileOutages` los compara con los que ya están guardados y devuelve solo los cambios (`src/domain/detection/reconcile.ts`). No genera ids: el servicio pone el uuid v7 de los inserts.
+
+- **Emparejamiento:** uno a uno, en orden de `start`. Cada corte detectado toma el guardado libre de `start` más cercano que esté a `RECONCILE_TOLERANCE_MS` (5 min) o menos. En empate, el de `start` más temprano. Un guardado se usa una sola vez.
+- **Par igual** (mismos `start`, `end`, `status`, `confidence` y `confirmed`): no hay cambio.
+- **Par distinto:** `update` del mismo `id` con lo detectado. Así un corte que se cierra, o cuyo inicio se mueve un poco, sigue siendo el mismo.
+- **Detectado sin pareja:** `insert`.
+- **Guardado sin pareja:** `update` a `descartado`, con sus horas intactas. Si ya estaba `descartado`, no hay cambio.
+- **Orden de salida:** primero los cambios de los detectados (por `start`) y después los descartes (por `start`).
+
+`deriveHomeStatus` (`src/domain/detection/home-status.ts`) calcula el estado de la casa con lo detectado:
+
+- Con un corte `abierto`: `sin_luz` desde su `start`. Si hay varios abiertos, vale el de `start` más tardío.
+- Sin corte abierto y con la casa en `con_luz`: no cambia, ni el estado ni la hora.
+- Si no (venía de `sin_luz` o de `sin_noticias`): `con_luz` desde el `end` más tardío que sea mayor o igual a la hora del estado anterior, o desde ahora si no hay ninguno.
+
 ## Tests obligatorios
 
 Viven en `src/domain/detection/*.test.ts` y corren con `pnpm test`. El código exacto está en `docs/plans/2026-10-19-fase-0-clasificador.md`. Todo cambio de reglas o de umbral agrega su propio caso, idealmente sacado de un exporte real que queda en `test/fixtures/`.
