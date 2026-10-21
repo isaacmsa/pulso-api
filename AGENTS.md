@@ -22,9 +22,10 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 | Solo los tests unitarios (sin Docker) | `pnpm test:unit` |
 | Analizar un exporte del registrador | `pnpm spike:analyze <archivo.json>` |
 | PostgreSQL local | `pnpm db:up` (`docker compose -f compose.dev.yaml up -d --wait`, puerto 54322) |
-| API local (fase 1) | `pnpm dev` (`wrangler dev`, puerto 8787) |
+| API local (fase 1) | `cp .dev.vars.example .dev.vars` una vez; `pnpm dev` (`wrangler dev`, puerto 8787) |
 | El Xiaomi contra la API local (fase 1) | `adb reverse tcp:8787 tcp:8787` |
 | Generar y aplicar migraciones | `pnpm db:generate` / `pnpm db:migrate` (usa `DATABASE_URL`) |
+| Regenerar los tipos del Worker tras cambiar `wrangler.jsonc` | `pnpm cf-typegen` |
 | Regenerar y verificar el contrato (fase 1) | `pnpm openapi:export` / `pnpm openapi:check` |
 | Deploy a staging (fase 1) | Con cada push a `main` (`deploy.yml`); a mano: `pnpm deploy:staging` |
 | Secreto en un entorno | `pnpm exec wrangler secret put <NOMBRE> --env staging` |
@@ -62,8 +63,8 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 - **10 ms de CPU por petición en el plan gratuito**: la espera de la base no cuenta, pero el JSON y Zod sí. La clasificación corre solo sobre la ventana de la casa. Nada pesado en una petición.
 - **Una conexión por petición**: el cliente de postgres.js se crea dentro del handler con `env.HYPERDRIVE.connectionString`, nunca a nivel de módulo.
 - **`bigint` en postgres.js** llega como `string` por defecto. Configurar Drizzle con `mode: 'number'` en las columnas de horas (los epoch ms caben en un `number`).
-- **Migraciones con la conexión directa** de Supabase (puerto 5432), no por Hyperdrive ni por el pooler en modo transacción.
-- **Supabase pausa un proyecto tras 1 semana sin actividad.** Producción nunca se pausa porque los latidos son constantes; staging sí puede pausarse. Reactivarlo desde el panel.
+- **Migraciones por el pooler de sesión** de Supabase (IPv4, puerto 5432, usuario `pulso_api.<ref>`, A-017), nunca por Hyperdrive ni por el pooler en modo transacción (puerto 6543). La conexión directa de Supabase gratis es solo IPv6 y los runners de GitHub no la alcanzan; Hyperdrive sí usa la directa.
+- **Supabase pausa un proyecto tras 1 semana sin actividad.** Por eso el proyecto de producción se crea en la fase 2 (A-018); con latidos constantes no se pausa. Staging sí puede pausarse. Reactivarlo desde el panel.
 - **Supabase gratis no incluye respaldos descargables**: el respaldo es el workflow nocturno propio (A-010).
 - **Versiones viejas de la app** siguen mandando lotes durante meses. Un campo obligatorio nuevo las rompe.
 - **`sql.json()` no sirve con el cliente de Drizzle**: `drizzle-orm/postgres-js` reemplaza los serializadores de `json` y `jsonb` (114 y 3802) del cliente compartido por unos que no hacen nada, y un objeto llega como objeto a postgres.js. Para un parámetro `jsonb` se pasa `JSON.stringify(...)`.

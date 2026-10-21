@@ -41,7 +41,10 @@ Errores: `{ error: { code, message } }`.
 | 401 | `invalid_token` |
 | 404 | `not_found` (por ejemplo, un código inexistente) |
 | 409 | `home_exists` (el dispositivo ya vigila una casa) |
-| 429 | `rate_limited` (incluye la cabecera `Retry-After`) |
+| 429 | `rate_limited` (incluye la cabecera `Retry-After: 60`) |
+| 500 | `internal_error` (mensaje genérico; el error real va al log, sin cabeceras ni cuerpo y con el token tapado) |
+
+Una ruta que no existe también responde `404 not_found`, y un cuerpo que no es JSON, `400 validation_failed` con `issues` vacío.
 
 ## Contrato de eventos
 
@@ -137,12 +140,12 @@ Muchos usuarios de CANTV, Digitel y Movistar comparten IP (CGNAT), y cuando vuel
 
 | Ruta | Clave | Límite |
 | --- | --- | --- |
-| `POST /v1/devices` | IP | 30 por hora |
+| `POST /v1/devices` | IP | 5 por minuto (A-014) |
 | `POST /v1/events` | Dispositivo | 30 por minuto |
 | Resto con token | Dispositivo | 120 por minuto |
 | `GET /c/:code` | IP | 60 por minuto, con caché de 30 s |
 
-Se usa el binding Rate Limiting de Workers, con clave por dispositivo, o por IP en las rutas públicas (A-009). El teléfono espera entre 0 y 60 segundos al azar antes de subir tras recuperar la red, para no llegar todos en el mismo segundo.
+Se usa el binding Rate Limiting de Workers, con clave por dispositivo, o por IP en las rutas públicas (A-009). El binding solo admite periodos de 10 o 60 segundos. La clave por dispositivo es el SHA-256 del token, así que el límite corre antes de tocar la base, y sin token la petición responde 401 sin consultarla. El teléfono espera entre 0 y 60 segundos al azar antes de subir tras recuperar la red, para no llegar todos en el mismo segundo.
 
 ## Cuándo sale cada push
 

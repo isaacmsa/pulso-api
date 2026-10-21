@@ -1,0 +1,11 @@
+{
+  // El código del Worker contra los tipos del runtime (worker-configuration.d.ts, de
+  // `pnpm cf-typegen`). Va aparte porque esos tipos chocan con @types/node en los tests y scripts.
+  // @types/node sigue porque postgres.js lo usa y el Worker corre con nodejs_compat.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src", "worker-configuration.d.ts"],
+  "exclude": ["src/**/*.test.ts", "src/testing"]
+}

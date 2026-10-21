@@ -20,10 +20,10 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 
 ## Fase 1 · API en staging (S3, ~10 h)
 
-- [ ] Cuentas de Cloudflare y Supabase. Proyectos `pulso-staging` y `pulso` en `us-east-1`, rol `pulso_api` en cada uno, Hyperdrive por entorno y `wrangler.jsonc` con entornos, Rate Limiting y crons (1 h)
+- [ ] Cuentas de Cloudflare y Supabase. Proyecto `pulso-staging` en `us-east-1` con el rol `pulso_api`, su Hyperdrive (sin caché) y el `id` en `wrangler.jsonc`. Producción se crea en la fase 2 (A-018) y los crons llegan en las fases 3 y 4 (A-019) (1 h)
 - [x] Drizzle: `src/db/schema.ts` en el esquema `app` con RLS, `drizzle-kit generate`, `compose.dev.yaml` con PostgreSQL local y Hyperdrive con `localConnectionString` (1,5 h)
 - [x] Funciones `app.ingest_batch` y `app.apply_outages` en una migración, con tests de integración contra PostgreSQL (1,5 h)
-- [ ] Middleware: auth con SHA-256 y latido en un solo `UPDATE … RETURNING`, rate limit y errores (1,5 h)
+- [x] Middleware: auth con SHA-256 y latido en un solo `UPDATE … RETURNING`, rate limit y errores (1,5 h)
 - [ ] `devices` y `homes`: `POST /v1/devices`, `POST /v1/homes`, `PATCH`, `DELETE` en cascada (1 h)
 - [ ] `POST /v1/events` con `reconcileOutages` y `deriveHomeStatus` en `domain/` (con tests) y `GET /v1/homes/me/status` (2 h)
 - [ ] `GET /openapi.json`, `/docs` en staging, `pnpm openapi:export` y `openapi:check`; test de contrato con un lote real; `deploy.yml` con migraciones y deploy a staging (1,5 h)
@@ -34,7 +34,7 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 
 - [ ] `GET /v1/homes/me/outages` con `summarizeOutages` (1 h)
 - [ ] `GET /privacidad` y `GET /borrar-datos` con `hono/jsx`, con el contenido de `pulso-app/docs/security-privacy.md` (0,5 h)
-- [ ] Entorno `production` y despliegue manual con aprobación; workflow nocturno de respaldo con `pg_dump` cifrado (1 h)
+- [ ] Proyecto de Supabase `pulso` con el rol `pulso_api` y su Hyperdrive (A-018). Entorno `production` y despliegue manual con aprobación; workflow nocturno de respaldo con `pg_dump` cifrado (1 h)
 
 **Lista cuando:** la URL de `/privacidad` de producción carga y está puesta en Play Console, y existe el primer respaldo.
 

@@ -29,12 +29,14 @@ El producto, la app y la detección en el teléfono se documentan en `pulso-app/
 ```text
 pulso-api/
 ├─ src/
-│  ├─ index.ts                  # OpenAPIHono: rutas, /openapi.json, /docs, handler scheduled
-│  ├─ env.ts                    # tipo Bindings: HYPERDRIVE, RATE_LIMIT_*, secretos
+│  ├─ index.ts                  # createApp(): OpenAPIHono con rutas, /openapi.json, /docs, handler scheduled
+│  ├─ env.ts                    # AppEnv: Bindings (HYPERDRIVE, RATE_LIMIT_*, secretos) y AuthedDevice
 │  ├─ db/
 │  │  ├─ schema.ts              # tablas de Drizzle en el esquema `app` (ver docs/data-model.md)
 │  │  └─ client.ts              # postgres(env.HYPERDRIVE.connectionString) + drizzle, por petición
-│  ├─ middleware/               # auth (hash del token), rate-limit, errores { error: { code, message } }
+│  ├─ lib/crypto.ts             # token, SHA-256 y código para compartir (Web Crypto)
+│  ├─ middleware/               # db (cliente por petición), auth (hash del token), rate-limit,
+│  │                            # errores { error: { code, message } }
 │  ├─ domain/                   # lógica pura: sin Hono ni base de datos, testeada con Vitest en Node
 │  │  ├─ events/schema.ts       # contrato de eventos y lotes
 │  │  ├─ homes/schema.ts        # HomeStatus
@@ -54,7 +56,9 @@ pulso-api/
 │  └─ integration/              # repositorios y rutas contra PostgreSQL
 ├─ compose.dev.yaml             # PostgreSQL local, misma versión mayor que Supabase
 ├─ openapi.json                 # contrato generado y versionado
-├─ wrangler.jsonc               # entornos staging y production, Hyperdrive, Rate Limiting, crons
+├─ wrangler.jsonc               # local y staging (production en la fase 2), Hyperdrive, Rate Limiting; crons en las fases 3 y 4
+├─ worker-configuration.d.ts    # tipos de Workers generados con `pnpm cf-typegen` (versionados)
+├─ tsconfig.worker.json         # src/ contra los tipos de Workers; tsconfig.json queda para Node (tests y scripts)
 ├─ docs/
 ├─ AGENTS.md
 └─ CLAUDE.md
@@ -91,9 +95,9 @@ La consulta 1 es un `UPDATE … SET last_seen_at = … WHERE token_hash = … RE
 | --- | --- | --- | --- |
 | Local | `wrangler dev` en `localhost:8787` | PostgreSQL de `compose.dev.yaml` (vía `localConnectionString` de Hyperdrive) | El Xiaomi llega con `adb reverse tcp:8787 tcp:8787` |
 | Staging | `pulso-api-staging.<subdominio>.workers.dev` | Proyecto de Supabase `pulso-staging` | Dev builds y APK de prueba; `/docs` visible |
-| Producción | `pulso-api.<subdominio>.workers.dev` | Proyecto de Supabase `pulso` | Builds de Play |
+| Producción (desde la fase 2, A-018) | `pulso-api.<subdominio>.workers.dev` | Proyecto de Supabase `pulso` | Builds de Play |
 
-Los dos proyectos de Supabase gratuitos se usan uno para staging y otro para producción. Ambos en la región `us-east-1`, la más cercana a Venezuela. Staging se pausa si pasa una semana sin uso; se reactiva desde el panel.
+Los dos proyectos de Supabase gratuitos se usan uno para staging y otro para producción. Ambos en la región `us-east-1`, la más cercana a Venezuela. Producción se crea en la fase 2, cuando empieza a recibir tráfico: un proyecto sin uso se pausa a la semana (A-018). Staging se pausa si pasa una semana sin uso; se reactiva desde el panel. Cada Hyperdrive va con la caché de consultas desactivada (A-015).
 
 Secretos: la cadena de conexión vive en la configuración de Hyperdrive de cada entorno, no en el código. El resto se carga con `wrangler secret put --env <entorno>`; en local, en `.dev.vars` (en `.gitignore`). En la v1 son `EXPO_ACCESS_TOKEN` (desde la fase 3) y `SENTRY_DSN` (desde la fase 4). Staging y producción nunca comparten secretos ni contraseñas de base.
 
@@ -109,7 +113,7 @@ Supabase publica por defecto las tablas del esquema `public` en su API REST, acc
 ## CI y despliegue
 
 - **`ci.yml`**, en cada push y PR: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test` (con un PostgreSQL de `services:` de GitHub Actions) y `pnpm openapi:check` (falla si `openapi.json` no está al día).
-- **`deploy.yml`**: con cada push a `main`, aplica las migraciones a Supabase staging (`drizzle-kit migrate` con la conexión directa) y despliega el Worker. Producción se despliega a mano (`workflow_dispatch`, con aprobación en GitHub Environments), en el mismo orden: primero las migraciones, después el código. Secretos de GitHub: `CLOUDFLARE_API_TOKEN` (solo con permisos de Workers y Hyperdrive), `CLOUDFLARE_ACCOUNT_ID`, `STAGING_DATABASE_URL` y `PRODUCTION_DATABASE_URL`.
+- **`deploy.yml`**: con cada push a `main`, aplica las migraciones a Supabase staging (`drizzle-kit migrate` por el pooler de sesión: IPv4, puerto 5432, usuario `pulso_api.<ref>`, A-017) y despliega el Worker. La conexión directa de Supabase gratis es solo IPv6 y los runners de GitHub no tienen IPv6; Hyperdrive sí usa la conexión directa. Producción se despliega a mano (`workflow_dispatch`, con aprobación en GitHub Environments), en el mismo orden: primero las migraciones, después el código. Secretos de GitHub: `CLOUDFLARE_API_TOKEN` (solo con permisos de Workers y Hyperdrive), `CLOUDFLARE_ACCOUNT_ID`, `STAGING_DATABASE_URL` y `PRODUCTION_DATABASE_URL`.
 - **Rollback**: `wrangler rollback` vuelve a la versión anterior del Worker en segundos. Las migraciones solo agregan, así que el código anterior sigue funcionando con el esquema nuevo.
 - **Antes de cambiar el contrato**: el cambio es aditivo, el test de contrato con `test/fixtures/` sigue en verde, se despliega el backend y recién después la app regenera su cliente.
 - **Repo público**: GitHub Actions es gratis y sin límite de minutos, y el portafolio lo muestra.

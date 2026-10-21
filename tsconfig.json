@@ -10,5 +10,7 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "scripts", "test", "vitest.config.ts"]
+  "include": ["src", "scripts", "test", "vitest.config.ts"],
+  // lo compila tsconfig.worker.json, con los tipos de Workers
+  "exclude": ["src/worker-env.check.ts"]
 }

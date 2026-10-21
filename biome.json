@@ -6,7 +6,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/.superpowers", "!**/node_modules", "!**/coverage", "!**/.wrangler"]
+    "includes": [
+      "**",
+      "!**/.superpowers",
+      "!**/node_modules",
+      "!**/coverage",
+      "!**/.wrangler",
+      "!worker-configuration.d.ts"
+    ]
   },
   "formatter": {
     "enabled": true,
