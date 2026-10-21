@@ -31,8 +31,8 @@ let cachedKey: { raw: string; key: Promise<CryptoKey> } | undefined;
 
 /** La clave HMAC a partir de `TOKEN_SIGNING_KEY` (base64url de al menos 32 bytes). */
 function signingKey(raw: string): Promise<CryptoKey> {
-  if (cachedKey?.raw === raw) return cachedKey.key;
-  const bytes = fromBase64url(raw);
+  if (cachedKey && cachedKey.raw === raw) return cachedKey.key;
+  const bytes = typeof raw === 'string' ? fromBase64url(raw) : null;
   if (!bytes || bytes.length < MIN_KEY_BYTES) {
     throw new Error(`TOKEN_SIGNING_KEY debe ser base64url de al menos ${MIN_KEY_BYTES} bytes`);
   }
@@ -66,6 +66,9 @@ export async function verifyToken(signingKeyRaw: string, token: string): Promise
   const [random = '', signature = ''] = parts;
   const signatureBytes = fromBase64url(signature);
   if (!random || !signatureBytes?.length) return false;
+  // 43 caracteres llevan 258 bits: sin esto, 3 escrituras más de la misma firma verificarían, y
+  // cada una sería otro hash (otra consulta y otro cubo del límite)
+  if (toBase64url(signatureBytes) !== signature) return false;
   return crypto.subtle.verify('HMAC', key, signatureBytes, encoder.encode(random));
 }
 

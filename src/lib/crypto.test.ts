@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { generateShareCode, generateToken, sha256Hex, verifyToken } from './crypto';
 
 const KEY = Buffer.from('una-clave-de-prueba-de-32-bytes!!').toString('base64url');
@@ -33,6 +33,14 @@ describe('crypto', () => {
     const short = Buffer.from('corta').toString('base64url');
     await expect(generateToken(short)).rejects.toThrow('TOKEN_SIGNING_KEY');
     await expect(verifyToken(short, 'x.y')).rejects.toThrow('TOKEN_SIGNING_KEY');
+  });
+
+  it('sin clave, el error dice TOKEN_SIGNING_KEY aunque no haya nada en caché', async () => {
+    vi.resetModules();
+    const fresh = await import('./crypto');
+    await expect(fresh.verifyToken(undefined as unknown as string, 'x.y')).rejects.toThrow(
+      'TOKEN_SIGNING_KEY',
+    );
   });
 
   it('sha256Hex es estable', async () => {

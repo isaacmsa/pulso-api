@@ -262,6 +262,8 @@ describe('worker', () => {
     async (status, code) => {
       const res = await appForTest().request(`/__http/${status}`, {}, testEnv());
       expect(res.status).toBe(status);
+      // igual que el 429 del limitador
+      if (status === 429) expect(res.headers.get('Retry-After')).toBe('60');
       expect(await res.json()).toEqual({ error: { code, message: expect.any(String) } });
     },
   );
@@ -313,6 +315,30 @@ describe('worker', () => {
 
     it('un token firmado con otra clave es rechazado', async () => {
       await expectRejectedWithoutQuery(`Bearer ${token}`, { TOKEN_SIGNING_KEY: OTHER_SIGNING_KEY });
+    });
+
+    it('una firma con otra escritura base64url es rechazada sin consultar la base', async () => {
+      // 43 caracteres base64url llevan 258 bits: el último trae 2 bits que no cuentan, así que
+      // hay 3 escrituras más de los mismos 256 bits
+      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+      const last = alphabet.indexOf(sig.slice(-1));
+      expect(last % 4).toBe(0); // la firma canónica termina en un carácter múltiplo de 4
+      const respelled = `${sig.slice(0, -1)}${alphabet[last + 1]}`;
+      await expectRejectedWithoutQuery(`Bearer ${random}.${respelled}`);
+    });
+
+    it('sin TOKEN_SIGNING_KEY responde 500 con un mensaje claro y sin consultar la base', async () => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      let queries = 0;
+      const app = appForTest({ onQuery: () => queries++ });
+      const res = await app.request(
+        '/__probe',
+        { headers: bearer },
+        testEnv({ TOKEN_SIGNING_KEY: undefined as unknown as string }),
+      );
+      expect(res.status).toBe(500);
+      expect(queries).toBe(0);
+      expect(JSON.stringify(log.mock.calls)).toContain('TOKEN_SIGNING_KEY');
     });
 
     it('un token válido de verdad autentica', async () => {

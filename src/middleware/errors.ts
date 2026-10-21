@@ -77,6 +77,7 @@ export const errorHandler: ErrorHandler<AppEnv> = (err, c) => {
     // un JSON mal formado: Hono lanza HTTPException 400 antes de validar
     if (err.status === 400) return validationFailed(c, []);
     const { code, message } = fromHttpStatus(err.status);
+    if (err.status === 429) c.header('Retry-After', '60'); // igual que el limitador
     return apiError(c, err.status, code, message);
   }
 

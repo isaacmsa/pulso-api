@@ -1,6 +1,7 @@
 import { createRoute, z } from '@hono/zod-openapi';
 import { deviceAuth, SECURITY } from '../../middleware/device-auth';
 import { errorSchema } from '../../middleware/errors';
+import { requireJsonBody } from '../../middleware/json-body';
 import { rateLimit } from '../../middleware/rate-limit';
 
 const appVersion = z.string().min(1).max(32).openapi({ example: '1.0.0' });
@@ -16,9 +17,10 @@ export const registerRoute = createRoute({
   tags: ['dispositivos'],
   summary: 'Registrar el teléfono al primer arranque',
   description: 'Devuelve el token una sola vez: la API solo guarda su SHA-256.',
-  middleware: [rateLimit('RATE_LIMIT_REGISTER', 'ip')],
+  middleware: [rateLimit('RATE_LIMIT_REGISTER', 'ip'), requireJsonBody],
   request: {
     body: {
+      required: true,
       content: { 'application/json': { schema: z.object({ appVersion }) } },
     },
   },
@@ -51,9 +53,9 @@ export const patchDeviceRoute = createRoute({
   tags: ['dispositivos'],
   summary: 'Guardar el push token y la versión de la app',
   security: SECURITY,
-  middleware: deviceAuth,
+  middleware: [...deviceAuth, requireJsonBody],
   request: {
-    body: { content: { 'application/json': { schema: patchDeviceBody } } },
+    body: { required: true, content: { 'application/json': { schema: patchDeviceBody } } },
   },
   responses: {
     204: { description: 'Guardado' },

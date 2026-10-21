@@ -2,6 +2,7 @@ import { createRoute, z } from '@hono/zod-openapi';
 import { homeStatusSchema } from '../../domain/homes/schema';
 import { deviceAuth, SECURITY } from '../../middleware/device-auth';
 import { errorSchema } from '../../middleware/errors';
+import { requireJsonBody } from '../../middleware/json-body';
 
 const jsonError = (description: string) => ({
   description,
@@ -16,9 +17,10 @@ export const createHomeRoute = createRoute({
   tags: ['casas'],
   summary: 'Este teléfono vigila mi casa: crea la casa del dispositivo',
   security: SECURITY,
-  middleware: deviceAuth,
+  middleware: [...deviceAuth, requireJsonBody],
   request: {
     body: {
+      required: true,
       content: { 'application/json': { schema: z.object({ alias: alias.default('Casa') }) } },
     },
   },
@@ -56,9 +58,9 @@ export const patchHomeRoute = createRoute({
   tags: ['casas'],
   summary: 'Cambiar el alias o el modo (`base` o `ups`) de mi casa',
   security: SECURITY,
-  middleware: deviceAuth,
+  middleware: [...deviceAuth, requireJsonBody],
   request: {
-    body: { content: { 'application/json': { schema: patchHomeBody } } },
+    body: { required: true, content: { 'application/json': { schema: patchHomeBody } } },
   },
   responses: {
     204: { description: 'Guardado' },

@@ -26,15 +26,19 @@ export async function updateDevice(
 }
 
 /**
- * Borra la casa (si hay) y después el dispositivo, en una transacción. Las cascadas llevan los
- * eventos, cortes y seguidores de la casa, y los eventos y tickets del dispositivo.
+ * Borra la casa (si hay) y después el dispositivo, en una transacción. La casa se busca en la
+ * base, no en el resultado de la auth: una casa asignada entre la auth y el borrado no queda
+ * huérfana. Las cascadas llevan los eventos, cortes y seguidores de la casa, y los eventos y
+ * tickets del dispositivo.
  */
 export async function deleteDeviceAndHome(
   sql: postgres.Sql,
-  device: { id: string; homeId: string | null },
+  device: { id: string },
 ): Promise<void> {
   await sql.begin(async (tx) => {
-    if (device.homeId) await tx`DELETE FROM app.homes WHERE id = ${device.homeId}`;
+    await tx`
+      DELETE FROM app.homes
+      WHERE id = (SELECT home_id FROM app.devices WHERE id = ${device.id})`;
     await tx`DELETE FROM app.devices WHERE id = ${device.id}`;
   });
 }

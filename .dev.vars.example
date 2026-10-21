@@ -1,6 +1,6 @@
 # Secretos del Worker en local. Cópialo a .dev.vars (que no se versiona): si existe,
 # `wrangler dev` lo lee en vez de .env, y las variables de los tests no llegan al Worker.
-# TOKEN_SIGNING_KEY firma los tokens de los dispositivos (A-021). Genera uno propio, de más de
+# TOKEN_SIGNING_KEY firma los tokens de los dispositivos (A-021). Genera uno propio, de al menos
 # 32 bytes aleatorios en base64url:
 #   openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
 # Cambiarlo invalida todos los tokens. En staging: `wrangler secret put TOKEN_SIGNING_KEY --env staging`.

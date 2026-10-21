@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Bindings, RateLimiter } from '../../src/env';
 import { createApp } from '../../src/index';
 import { sha256Hex, verifyToken } from '../../src/lib/crypto';
+import { deleteDeviceAndHome } from '../../src/modules/devices/repo';
 import { createHomeForDevice } from '../../src/modules/homes/service';
 import { TEST_SIGNING_KEY, testDb, truncateAll } from './helpers';
 
@@ -261,6 +262,32 @@ describe('devices y homes', () => {
     expect((await call('PATCH', '/v1/devices/me', { token, body: {} })).status).toBe(400);
   });
 
+  it('sin cuerpo y sin Content-Type, POST /v1/homes y los PATCH responden 400', async () => {
+    const { token } = await registerWithHome();
+    const other = await register();
+    for (const [method, path, who] of [
+      ['POST', '/v1/homes', other.token],
+      ['PATCH', '/v1/homes/me', token],
+      ['PATCH', '/v1/devices/me', token],
+    ] as const) {
+      const res = await call(method, path, { token: who });
+      expect(res.status, `${method} ${path}`).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'validation_failed',
+      );
+    }
+    const [homes] = await sql<{ n: string }[]>`SELECT count(*) AS n FROM app.homes`;
+    expect(homes?.n).toBe('1');
+  });
+
+  it('POST /v1/homes con {} pone el alias Casa', async () => {
+    const { token } = await register();
+    const res = await call('POST', '/v1/homes', { token, body: {} });
+    expect(res.status).toBe(201);
+    const status = await call('GET', '/v1/homes/me/status', { token });
+    expect(((await status.json()) as { alias: string }).alias).toBe('Casa');
+  });
+
   it('las rutas con token responden 401 sin él', async () => {
     for (const [method, path, body] of [
       ['PATCH', '/v1/devices/me', { appVersion: '1' }],
@@ -292,9 +319,11 @@ describe('devices y homes', () => {
       INSERT INTO app.push_tickets (ticket_id, device_id, created_at)
       VALUES ('ticket-1', ${deviceId}, ${now})`;
 
+    queries = 0;
     const res = await call('DELETE', '/v1/devices/me', { token });
 
     expect(res.status).toBe(204);
+    expect(queries).toBe(5); // auth, BEGIN, DELETE de la casa, DELETE del dispositivo, COMMIT
     const count = async (table: string, column: string, id: string) => {
       const [row] = await sql<{ n: string }[]>`
         SELECT count(*) AS n FROM ${sql(`app.${table}`)} WHERE ${sql(column)} = ${id}`;
@@ -312,6 +341,15 @@ describe('devices y homes', () => {
 
     const again = await call('GET', '/v1/homes/me/status', { token });
     expect(again.status).toBe(401);
+  });
+
+  it('borrar con un estado viejo de auth también borra la casa recién asignada', async () => {
+    const { deviceId, homeId } = await registerWithHome();
+    // la auth pudo ver un dispositivo sin casa: el borrado no confía en eso
+    await deleteDeviceAndHome(sql, { id: deviceId });
+    const [homes] = await sql<{ n: string }[]>`
+      SELECT count(*) AS n FROM app.homes WHERE id = ${homeId}`;
+    expect(homes?.n).toBe('0');
   });
 
   it('borrar un dispositivo sin casa borra solo el dispositivo', async () => {
