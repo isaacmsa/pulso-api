@@ -1,7 +1,8 @@
 import { createRoute, z } from '@hono/zod-openapi';
-import { errorSchema } from '../../middleware/errors';
+import { jsonError } from '../../middleware/errors';
 
 export const healthRoute = createRoute({
+  operationId: 'getHealth',
   method: 'get',
   path: '/health',
   tags: ['monitoreo'],
@@ -11,9 +12,6 @@ export const healthRoute = createRoute({
       description: 'La base respondió a un `SELECT 1`',
       content: { 'application/json': { schema: z.object({ ok: z.literal(true) }) } },
     },
-    500: {
-      description: 'La base no respondió',
-      content: { 'application/json': { schema: errorSchema } },
-    },
+    500: jsonError('`internal_error`: la base no respondió'),
   },
 });

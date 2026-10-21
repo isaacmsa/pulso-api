@@ -20,20 +20,43 @@ describe('contrato de /v1', () => {
     }
   });
 
-  it('openapi.json declara las rutas de la fase 1', () => {
+  // Los operationId nombran las funciones del cliente que la app genera: renombrar uno lo rompe.
+  const OPERATIONS: Array<[method: string, path: string, operationId: string]> = [
+    ['get', '/health', 'getHealth'],
+    ['post', '/v1/devices', 'registerDevice'],
+    ['patch', '/v1/devices/me', 'updateDevice'],
+    ['delete', '/v1/devices/me', 'deleteDevice'],
+    ['post', '/v1/homes', 'createHome'],
+    ['patch', '/v1/homes/me', 'updateHome'],
+    ['get', '/v1/homes/me/status', 'getHomeStatus'],
+    ['post', '/v1/events', 'ingestEvents'],
+  ];
+
+  it('openapi.json declara las rutas de la fase 1, con sus métodos y operationId', () => {
     const doc = JSON.parse(readFileSync(OPENAPI_PATH, 'utf8')) as {
-      paths: Record<string, unknown>;
+      paths: Record<string, Record<string, { operationId?: string }>>;
     };
-    for (const path of [
-      '/v1/devices',
-      '/v1/devices/me',
-      '/v1/homes',
-      '/v1/homes/me',
-      '/v1/homes/me/status',
-      '/v1/events',
-      '/health',
-    ]) {
-      expect(doc.paths, path).toHaveProperty([path]);
+    const expected: Record<string, string[]> = {};
+    for (const [method, path, operationId] of OPERATIONS) {
+      expect(doc.paths[path]?.[method]?.operationId, `${method} ${path}`).toBe(operationId);
+      expected[path] = [...(expected[path] ?? []), method];
+    }
+    // ni rutas ni métodos de más: un método nuevo se agrega aquí a propósito
+    for (const [path, methods] of Object.entries(expected)) {
+      expect(Object.keys(doc.paths[path] ?? {}).sort(), path).toEqual(methods.sort());
+    }
+    expect(Object.keys(doc.paths).sort()).toEqual(Object.keys(expected).sort());
+  });
+
+  it('cada ruta documenta el 500 y el 429 con Retry-After', () => {
+    const doc = JSON.parse(readFileSync(OPENAPI_PATH, 'utf8')) as {
+      paths: Record<string, Record<string, { responses: Record<string, { headers?: object }> }>>;
+    };
+    for (const [method, path] of OPERATIONS) {
+      const responses = doc.paths[path]?.[method]?.responses ?? {};
+      expect(responses, `${method} ${path}`).toHaveProperty('500');
+      if (responses['429'])
+        expect(responses['429'].headers, `${method} ${path}`).toHaveProperty('Retry-After');
     }
   });
 

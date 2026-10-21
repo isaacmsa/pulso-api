@@ -21,8 +21,20 @@ jobs:
       - name: Revisar que staging esté configurado
         id: gate
         run: |
-          if grep -q '<pendiente-isaac>' wrangler.jsonc; then
-            echo "::notice title=Deploy omitido::wrangler.jsonc aún tiene el id de Hyperdrive de staging pendiente (<pendiente-isaac>). No se migra ni se despliega hasta que Isaac lo ponga."
+          # el id de Hyperdrive de staging, y solo ese: un comentario con el marcador no cuenta
+          staging_id=$(node -e '
+            const text = require("node:fs").readFileSync("wrangler.jsonc", "utf8");
+            const strip = text.replace(/^\s*\/\/.*$/gm, "");
+            const config = JSON.parse(strip);
+            process.stdout.write(config.env?.staging?.hyperdrive?.[0]?.id ?? "");
+          ')
+          if [ -z "$staging_id" ] || [ "$staging_id" = "<pendiente-isaac>" ]; then
+            msg="wrangler.jsonc aún tiene pendiente el id de Hyperdrive de staging (env.staging.hyperdrive). No se migra ni se despliega hasta que Isaac lo ponga."
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "::warning title=Deploy omitido::$msg"
+            else
+              echo "::notice title=Deploy omitido::$msg"
+            fi
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"

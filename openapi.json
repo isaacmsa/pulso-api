@@ -54,6 +54,7 @@
   "paths": {
     "/health": {
       "get": {
+        "operationId": "getHealth",
         "tags": [
           "monitoreo"
         ],
@@ -81,7 +82,7 @@
             }
           },
           "500": {
-            "description": "La base no respondió",
+            "description": "`internal_error`: la base no respondió",
             "content": {
               "application/json": {
                 "schema": {
@@ -95,6 +96,7 @@
     },
     "/v1/devices": {
       "post": {
+        "operationId": "registerDevice",
         "tags": [
           "dispositivos"
         ],
@@ -159,6 +161,25 @@
           },
           "429": {
             "description": "Más de 5 registros por minuto desde esta IP",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
             "content": {
               "application/json": {
                 "schema": {
@@ -172,6 +193,7 @@
     },
     "/v1/devices/me": {
       "patch": {
+        "operationId": "updateDevice",
         "tags": [
           "dispositivos"
         ],
@@ -232,6 +254,25 @@
           },
           "429": {
             "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
             "content": {
               "application/json": {
                 "schema": {
@@ -243,6 +284,7 @@
         }
       },
       "delete": {
+        "operationId": "deleteDevice",
         "tags": [
           "dispositivos"
         ],
@@ -268,6 +310,25 @@
           },
           "429": {
             "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
             "content": {
               "application/json": {
                 "schema": {
@@ -281,6 +342,7 @@
     },
     "/v1/homes": {
       "post": {
+        "operationId": "createHome",
         "tags": [
           "casas"
         ],
@@ -366,6 +428,25 @@
           },
           "429": {
             "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
             "content": {
               "application/json": {
                 "schema": {
@@ -379,6 +460,7 @@
     },
     "/v1/homes/me": {
       "patch": {
+        "operationId": "updateHome",
         "tags": [
           "casas"
         ],
@@ -449,6 +531,25 @@
           },
           "429": {
             "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
             "content": {
               "application/json": {
                 "schema": {
@@ -462,6 +563,7 @@
     },
     "/v1/homes/me/status": {
       "get": {
+        "operationId": "getHomeStatus",
         "tags": [
           "casas"
         ],
@@ -534,6 +636,25 @@
           },
           "429": {
             "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
             "content": {
               "application/json": {
                 "schema": {
@@ -547,6 +668,7 @@
     },
     "/v1/events": {
       "post": {
+        "operationId": "ingestEvents",
         "tags": [
           "eventos"
         ],
@@ -857,6 +979,25 @@
           },
           "429": {
             "description": "Más de 30 lotes por minuto de este dispositivo",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
             "content": {
               "application/json": {
                 "schema": {

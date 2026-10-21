@@ -25,6 +25,26 @@ export const errorSchema = z
   })
   .openapi('Error');
 
+/** Una respuesta de error de la API en la definición de una ruta. */
+export const jsonError = (description: string) => ({
+  description,
+  content: { 'application/json': { schema: errorSchema } },
+});
+
+/** El 429 lleva `Retry-After` (lo ponen el limitador y el handler de errores). */
+export const rateLimitedError = (description: string) => ({
+  ...jsonError(description),
+  headers: {
+    'Retry-After': {
+      description: 'Segundos que hay que esperar antes de reintentar',
+      schema: { type: 'string' as const, example: '60' },
+    },
+  },
+});
+
+/** El 500 que puede devolver cualquier ruta si algo falla de nuestro lado. */
+export const internalError = jsonError('`internal_error`: algo falló de nuestro lado');
+
 /** Respuesta de error con la forma `{ error: { code, message } }` (docs/api.md). */
 export function apiError<S extends ContentfulStatusCode, C extends ErrorCode>(
   c: Context,

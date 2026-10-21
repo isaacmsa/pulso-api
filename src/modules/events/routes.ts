@@ -3,14 +3,9 @@ import { eventBatchSchema } from '../../domain/events/schema';
 import { homeStatusSchema } from '../../domain/homes/schema';
 import { requireToken } from '../../middleware/auth';
 import { SECURITY } from '../../middleware/device-auth';
-import { errorSchema } from '../../middleware/errors';
+import { internalError, jsonError, rateLimitedError } from '../../middleware/errors';
 import { requireJsonBody } from '../../middleware/json-body';
 import { rateLimit } from '../../middleware/rate-limit';
-
-const jsonError = (description: string) => ({
-  description,
-  content: { 'application/json': { schema: errorSchema } },
-});
 
 const count = z.number().int().min(0);
 
@@ -19,6 +14,7 @@ const count = z.number().int().min(0);
  * mismo `UPDATE` del latido (consulta 1).
  */
 export const postEventsRoute = createRoute({
+  operationId: 'ingestEvents',
   method: 'post',
   path: '/v1/events',
   tags: ['eventos'],
@@ -43,6 +39,7 @@ export const postEventsRoute = createRoute({
     400: jsonError('Lote inválido o de más de 200 eventos'),
     401: jsonError('Token inválido'),
     404: jsonError('El dispositivo no vigila ninguna casa'),
-    429: jsonError('Más de 30 lotes por minuto de este dispositivo'),
+    429: rateLimitedError('Más de 30 lotes por minuto de este dispositivo'),
+    500: internalError,
   },
 });

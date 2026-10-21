@@ -1,17 +1,13 @@
 import { createRoute, z } from '@hono/zod-openapi';
 import { homeStatusSchema } from '../../domain/homes/schema';
 import { deviceAuth, SECURITY } from '../../middleware/device-auth';
-import { errorSchema } from '../../middleware/errors';
+import { internalError, jsonError, rateLimitedError } from '../../middleware/errors';
 import { requireJsonBody } from '../../middleware/json-body';
-
-const jsonError = (description: string) => ({
-  description,
-  content: { 'application/json': { schema: errorSchema } },
-});
 
 const alias = z.string().trim().min(1).max(40).openapi({ example: 'Casa de mamá' });
 
 export const createHomeRoute = createRoute({
+  operationId: 'createHome',
   method: 'post',
   path: '/v1/homes',
   tags: ['casas'],
@@ -39,7 +35,8 @@ export const createHomeRoute = createRoute({
     400: jsonError('Cuerpo inválido'),
     401: jsonError('Token inválido'),
     409: jsonError('`home_exists`: el dispositivo ya vigila una casa'),
-    429: jsonError('Demasiadas peticiones'),
+    429: rateLimitedError('Demasiadas peticiones'),
+    500: internalError,
   },
 });
 
@@ -53,6 +50,7 @@ export const patchHomeBody = z
   });
 
 export const patchHomeRoute = createRoute({
+  operationId: 'updateHome',
   method: 'patch',
   path: '/v1/homes/me',
   tags: ['casas'],
@@ -67,11 +65,13 @@ export const patchHomeRoute = createRoute({
     400: jsonError('Cuerpo inválido o sin campos'),
     401: jsonError('Token inválido'),
     404: jsonError('El dispositivo no tiene casa'),
-    429: jsonError('Demasiadas peticiones'),
+    429: rateLimitedError('Demasiadas peticiones'),
+    500: internalError,
   },
 });
 
 export const homeStatusRoute = createRoute({
+  operationId: 'getHomeStatus',
   method: 'get',
   path: '/v1/homes/me/status',
   tags: ['casas'],
@@ -85,6 +85,7 @@ export const homeStatusRoute = createRoute({
     },
     401: jsonError('Token inválido'),
     404: jsonError('El dispositivo no tiene casa'),
-    429: jsonError('Demasiadas peticiones'),
+    429: rateLimitedError('Demasiadas peticiones'),
+    500: internalError,
   },
 });

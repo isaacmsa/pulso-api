@@ -1,17 +1,13 @@
 import { createRoute, z } from '@hono/zod-openapi';
 import { deviceAuth, SECURITY } from '../../middleware/device-auth';
-import { errorSchema } from '../../middleware/errors';
+import { internalError, jsonError, rateLimitedError } from '../../middleware/errors';
 import { requireJsonBody } from '../../middleware/json-body';
 import { rateLimit } from '../../middleware/rate-limit';
 
 const appVersion = z.string().min(1).max(32).openapi({ example: '1.0.0' });
 
-const jsonError = (description: string) => ({
-  description,
-  content: { 'application/json': { schema: errorSchema } },
-});
-
 export const registerRoute = createRoute({
+  operationId: 'registerDevice',
   method: 'post',
   path: '/v1/devices',
   tags: ['dispositivos'],
@@ -34,7 +30,8 @@ export const registerRoute = createRoute({
       },
     },
     400: jsonError('Cuerpo inválido'),
-    429: jsonError('Más de 5 registros por minuto desde esta IP'),
+    429: rateLimitedError('Más de 5 registros por minuto desde esta IP'),
+    500: internalError,
   },
 });
 
@@ -48,6 +45,7 @@ export const patchDeviceBody = z
   });
 
 export const patchDeviceRoute = createRoute({
+  operationId: 'updateDevice',
   method: 'patch',
   path: '/v1/devices/me',
   tags: ['dispositivos'],
@@ -61,11 +59,13 @@ export const patchDeviceRoute = createRoute({
     204: { description: 'Guardado' },
     400: jsonError('Cuerpo inválido o sin campos'),
     401: jsonError('Token inválido'),
-    429: jsonError('Demasiadas peticiones'),
+    429: rateLimitedError('Demasiadas peticiones'),
+    500: internalError,
   },
 });
 
 export const deleteDeviceRoute = createRoute({
+  operationId: 'deleteDevice',
   method: 'delete',
   path: '/v1/devices/me',
   tags: ['dispositivos'],
@@ -75,6 +75,7 @@ export const deleteDeviceRoute = createRoute({
   responses: {
     204: { description: 'Borrado, con su casa, eventos, cortes y seguidores' },
     401: jsonError('Token inválido'),
-    429: jsonError('Demasiadas peticiones'),
+    429: rateLimitedError('Demasiadas peticiones'),
+    500: internalError,
   },
 });
