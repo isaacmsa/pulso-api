@@ -13,6 +13,7 @@ type IngestResult = {
   duplicated: number;
   revision: number;
   mode: 'base' | 'ups';
+  status: { state: HomeStatus['state']; since: number };
   window: DeviceEvent[];
   outages: StoredOutage[];
 };
@@ -84,6 +85,18 @@ describe('funciones de ingesta', () => {
       FROM app.homes WHERE id = ${homeId}`;
     return row;
   }
+
+  it('devuelve el estado actual de la casa, también en un reintento', async () => {
+    const home = await createHome(sql, { since: at(-60) });
+    await sql`UPDATE app.homes SET status = 'sin_luz', status_since = ${at(-10)} WHERE id = ${home.homeId}`;
+    const events = [snap(0, true, true)];
+
+    const first = await ingest(home, events);
+    expect(first.status).toEqual({ state: 'sin_luz', since: at(-10) });
+
+    const again = await ingest(home, events);
+    expect(again).toMatchObject({ accepted: 0, status: { state: 'sin_luz', since: at(-10) } });
+  });
 
   it('inserta y cuenta duplicados', async () => {
     const home = await createHome(sql);

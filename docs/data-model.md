@@ -109,7 +109,7 @@ Viven en `drizzle/0001_ingest_functions.sql`. Son `plpgsql`, `SECURITY INVOKER`,
 ```sql
 app.ingest_batch(p_device_id uuid, p_home_id uuid, p_events jsonb,
                  p_offset_ms bigint, p_received_at bigint) RETURNS jsonb
--- { accepted, duplicated, revision, mode, window, outages }
+-- { accepted, duplicated, revision, mode, status: { state, since }, window, outages }
 
 app.apply_outages(p_home_id uuid, p_revision bigint, p_changes jsonb,
                   p_status jsonb, p_now bigint) RETURNS jsonb
@@ -120,6 +120,7 @@ app.apply_outages(p_home_id uuid, p_revision bigint, p_changes jsonb,
 
 - Si `accepted = 0`, no sube la revisión y devuelve `window: []` y `outages: []`.
 - Si aceptó algo, sube `homes.ingest_revision` (A-016) y devuelve la revisión nueva, el `mode` de la casa, la ventana y los cortes.
+- `status` es el `{ state, since }` de `homes` leído en el mismo `UPDATE … RETURNING` que sube la revisión, con la fila bloqueada. Ya incluye todo `apply_outages` que aplicó antes, y la revisión nueva hace que ninguno aplique después sin que este lote lo note. Por eso `deriveHomeStatus` parte de este estado y no del de la auth (A-023).
 - `window`: los eventos de la casa en la ventana, ordenados por `(at, id)`. Cada uno es su `payload` con `at` ya corregido.
 - `outages`: `{ id, start, end, status, confidence, confirmed }`, ordenados por `start`. Son los guardados que `reconcileOutages` compara con lo detectado.
 

@@ -25,7 +25,7 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 - [x] Funciones `app.ingest_batch` y `app.apply_outages` en una migración, con tests de integración contra PostgreSQL (1,5 h)
 - [x] Middleware: auth con SHA-256 y latido en un solo `UPDATE … RETURNING`, rate limit y errores (1,5 h)
 - [x] `devices` y `homes`: `POST /v1/devices`, `POST /v1/homes`, `PATCH`, `DELETE` en cascada (1 h)
-- [ ] `POST /v1/events` con `reconcileOutages` y `deriveHomeStatus` en `domain/` (con tests) y `GET /v1/homes/me/status` (2 h)
+- [x] `POST /v1/events` con `reconcileOutages` y `deriveHomeStatus` en `domain/` (con tests) y `GET /v1/homes/me/status` (2 h)
 - [ ] `GET /openapi.json`, `/docs` en staging, `pnpm openapi:export` y `openapi:check`; test de contrato con un lote real; `deploy.yml` con migraciones y deploy a staging (1,5 h)
 
 **Lista cuando:** reenviar el mismo lote devuelve `duplicated` igual al número de eventos en staging, y un latido gasta una sola consulta (verificado en el panel de Hyperdrive).

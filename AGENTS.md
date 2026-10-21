@@ -21,6 +21,7 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 | Lint, tipos y tests (los de integración necesitan `pnpm db:up` y un `.env` copiado de `.env.example`) | `pnpm lint && pnpm typecheck && pnpm test` |
 | Solo los tests unitarios (sin Docker) | `pnpm test:unit` |
 | Analizar un exporte del registrador | `pnpm spike:analyze <archivo.json>` |
+| Mover un exporte real en el tiempo para publicarlo en `test/fixtures/exports/` | `pnpm fixtures:shift <entrada.json> <salida.json>` |
 | PostgreSQL local | `pnpm db:up` (`docker compose -f compose.dev.yaml up -d --wait`, puerto 54322) |
 | API local (fase 1) | `cp .dev.vars.example .dev.vars` una vez; `pnpm dev` (`wrangler dev`, puerto 8787) |
 | El Xiaomi contra la API local (fase 1) | `adb reverse tcp:8787 tcp:8787` |

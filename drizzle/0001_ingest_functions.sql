@@ -3,7 +3,8 @@
 -- El clasificador no está aquí: corre en el Worker entre las dos llamadas.
 
 -- Guarda un lote sin duplicar (por device_id, id), sube la revisión de la casa (A-016) si
--- aceptó algo y devuelve la ventana que el Worker tiene que clasificar.
+-- aceptó algo y devuelve la ventana que el Worker tiene que clasificar, con el estado de la casa
+-- leído bajo el mismo candado (A-023).
 CREATE FUNCTION app.ingest_batch(
   p_device_id uuid,
   p_home_id uuid,
@@ -24,6 +25,8 @@ DECLARE
   v_from bigint;
   v_revision bigint;
   v_mode text;
+  v_status text;
+  v_status_since bigint;
   v_window jsonb;
   v_outages jsonb;
 BEGIN
@@ -45,21 +48,27 @@ BEGIN
   FROM inserted;
 
   IF v_accepted = 0 THEN
-    SELECT ingest_revision, mode INTO v_revision, v_mode FROM app.homes WHERE id = p_home_id;
+    SELECT ingest_revision, mode, status, status_since
+    INTO v_revision, v_mode, v_status, v_status_since
+    FROM app.homes WHERE id = p_home_id;
     RETURN jsonb_build_object(
       'accepted', 0,
       'duplicated', v_total,
       'revision', v_revision,
       'mode', v_mode,
+      'status', jsonb_build_object('state', v_status, 'since', v_status_since),
       'window', '[]'::jsonb,
       'outages', '[]'::jsonb
     );
   END IF;
 
   -- Toma el candado de la casa: un lote en paralelo espera aquí y, al seguir, ya ve estos eventos.
+  -- El estado sale de esta misma fila: incluye todo apply_outages que aplicó antes, y la revisión
+  -- nueva impide que otro aplique después sin que apply_outages de este lote lo note (A-023).
   UPDATE app.homes SET ingest_revision = ingest_revision + 1
   WHERE id = p_home_id
-  RETURNING ingest_revision, mode INTO v_revision, v_mode;
+  RETURNING ingest_revision, mode, status, status_since
+  INTO v_revision, v_mode, v_status, v_status_since;
 
   v_anchor := least(v_oldest_at, v_confirmation_anchor);
 
@@ -119,6 +128,7 @@ BEGIN
     'duplicated', v_total - v_accepted,
     'revision', v_revision,
     'mode', v_mode,
+    'status', jsonb_build_object('state', v_status, 'since', v_status_since),
     'window', v_window,
     'outages', v_outages
   );

@@ -10,7 +10,7 @@ export const devices = new OpenAPIHono<AppEnv>({ defaultHook: validationHook })
     const registered = await service.registerDevice(
       c.var.db,
       appVersion,
-      Date.now(),
+      c.var.now(),
       c.env.TOKEN_SIGNING_KEY,
     );
     return c.json(registered, 201);

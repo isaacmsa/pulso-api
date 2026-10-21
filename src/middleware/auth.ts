@@ -82,7 +82,7 @@ export const requireToken: MiddlewareHandler<AppEnv> = async (c, next) => {
 
 /** Autentica con `tokenHash` (va después de `requireToken` y del límite) y pone `device`. */
 export const requireDevice: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const device = await authenticate(c.var.sql, c.var.tokenHash, Date.now());
+  const device = await authenticate(c.var.sql, c.var.tokenHash, c.var.now());
   if (!device) return invalidToken(c);
   c.set('device', device);
   await next();

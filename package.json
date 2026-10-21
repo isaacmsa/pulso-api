@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "spike:analyze": "tsx scripts/spike/analyze.ts",
+    "fixtures:shift": "tsx scripts/fixtures/shift-export.ts",
     "db:up": "docker compose -f compose.dev.yaml up -d --wait",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

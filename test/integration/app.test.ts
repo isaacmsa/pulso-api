@@ -10,7 +10,7 @@ import { errorSchema } from '../../src/middleware/errors';
 import { rateLimit } from '../../src/middleware/rate-limit';
 import { createHome, OTHER_SIGNING_KEY, TEST_SIGNING_KEY, testDb, truncateAll } from './helpers';
 
-const NOW = 1_700_000_000_000; // en el pasado: requireDevice usa la hora real
+const NOW = 1_700_000_000_000; // en el pasado: requireDevice usa la hora del Worker (Date.now: este app no la fija)
 const token = await generateToken(TEST_SIGNING_KEY);
 const bearer = { Authorization: `Bearer ${token}` };
 

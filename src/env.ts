@@ -45,5 +45,7 @@ export type AppEnv = {
     /** Cliente de la petición: postgres.js conecta recién en la primera consulta. */
     sql: postgres.Sql;
     db: Db;
+    /** La hora del Worker (epoch ms). `Date.now` salvo en los tests, que la fijan con `createApp`. */
+    now: () => number;
   };
 };

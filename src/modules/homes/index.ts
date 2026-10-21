@@ -12,7 +12,7 @@ export const homes = new OpenAPIHono<AppEnv>({ defaultHook: validationHook })
     const device = c.var.device;
     if (device.homeId) return apiError(c, 409, 'home_exists', HOME_EXISTS);
     const { alias } = c.req.valid('json');
-    const created = await service.createHomeForDevice(c.var.sql, device, alias, Date.now());
+    const created = await service.createHomeForDevice(c.var.sql, device, alias, c.var.now());
     // null: otra petición del mismo dispositivo le asignó la casa entre la auth y el INSERT
     if (!created) return apiError(c, 409, 'home_exists', HOME_EXISTS);
     return c.json(created, 201);
