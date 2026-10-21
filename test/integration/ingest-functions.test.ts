@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { DetectedOutage } from '../../src/domain/detection/types';
 import type { DeviceEvent } from '../../src/domain/events/schema';
 import type { HomeStatus } from '../../src/domain/homes/schema';
-import { at, confirmation, snap } from '../../src/testing/builders';
+import { at, confirmation, report, snap } from '../../src/testing/builders';
 import { createHome, testDb, truncateAll } from './helpers';
 
 type StoredOutage = DetectedOutage & { id: string };
@@ -167,6 +167,79 @@ describe('funciones de ingesta', () => {
 
     expect(result.outages).toEqual([{ id: outageId, ...outage }]);
     expect(result.window[0]?.at).toBe(at(0));
+  });
+
+  it('la ventana arranca antes del corte manual abierto aunque haya un snapshot powered repetido dentro', async () => {
+    const home = await createHome(sql);
+    const armed = snap(0, true, true);
+    const sinLuz = report(1, 'sin_luz');
+    await ingest(home, [armed]);
+    await ingest(home, [sinLuz]);
+    // un snapshot powered repetido no cierra el corte manual (solo lo cierra entrar en powered)
+    await ingest(home, [snap(2, true, true, { internet: false })]);
+    await storeOutage(home.homeId, {
+      start: at(1),
+      end: null,
+      status: 'abierto',
+      confidence: 'manual',
+      confirmed: null,
+    });
+
+    const result = await ingest(home, [snap(30, true, true)]);
+
+    expect(result.window[0]?.at).toBe(at(0));
+    expect(result.window).toContainEqual(sinLuz);
+  });
+
+  it('la ventana empieza en el snapshot powered más reciente antes del ancla, no en uno más viejo', async () => {
+    const home = await createHome(sql);
+    await ingest(home, [
+      snap(-30, false, false),
+      snap(-20, true, true),
+      snap(0, true, true),
+      snap(5, false, true),
+    ]);
+
+    const result = await ingest(home, [snap(100, true, true)]);
+
+    expect(result.window[0]?.at).toBe(at(0));
+  });
+
+  it('si el lote empieza con un snapshot powered, la ventana arranca en el powered anterior', async () => {
+    const home = await createHome(sql);
+    await ingest(home, [snap(0, true, true)]);
+
+    const result = await ingest(home, [
+      snap(100, true, true, { internet: false }),
+      snap(105, false, true),
+    ]);
+
+    expect(result.window[0]?.at).toBe(at(0));
+  });
+
+  it('un evento atrasado dentro de un corte manual cerrado arranca la ventana antes del corte', async () => {
+    const home = await createHome(sql);
+    const armed = snap(0, true, true);
+    const sinLuz = report(1, 'sin_luz');
+    await ingest(home, [armed]);
+    await ingest(home, [sinLuz]);
+    await ingest(home, [snap(2, true, true, { internet: false })]);
+    await ingest(home, [report(60, 'hay_luz')]);
+    const outage: DetectedOutage = {
+      start: at(1),
+      end: at(60),
+      status: 'cerrado',
+      confidence: 'manual',
+      confirmed: null,
+    };
+    const outageId = await storeOutage(home.homeId, outage);
+
+    // llega tarde: sin el corte, la ventana empezaría en el snapshot powered del minuto 2
+    const result = await ingest(home, [snap(30, false, false)]);
+
+    expect(result.window[0]?.at).toBe(at(0));
+    expect(result.window).toContainEqual(sinLuz);
+    expect(result.outages).toEqual([{ id: outageId, ...outage }]);
   });
 
   it('deja fuera de la ventana los cortes sin_datos', async () => {

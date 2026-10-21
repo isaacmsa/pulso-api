@@ -20,7 +20,6 @@ DECLARE
   v_accepted integer;
   v_oldest_at bigint;
   v_confirmation_anchor bigint;
-  v_open_start bigint;
   v_anchor bigint;
   v_from bigint;
   v_revision bigint;
@@ -62,10 +61,17 @@ BEGIN
   WHERE id = p_home_id
   RETURNING ingest_revision, mode INTO v_revision, v_mode;
 
-  SELECT min(started_at) INTO v_open_start
-  FROM app.outages WHERE home_id = p_home_id AND status = 'abierto';
+  v_anchor := least(v_oldest_at, v_confirmation_anchor);
 
-  v_anchor := least(v_oldest_at, v_confirmation_anchor, v_open_start);
+  -- Si el ancla cae dentro de un corte guardado (abierto, o que terminó en el ancla o después),
+  -- la ventana arranca antes de ese corte. Un corte manual sigue abierto aunque haya snapshots
+  -- powered repetidos dentro: empezar a mitad de corte haría que el clasificador inventara otro.
+  SELECT least(v_anchor, min(started_at)) INTO v_anchor
+  FROM app.outages
+  WHERE home_id = p_home_id
+    AND status <> 'sin_datos'
+    AND started_at < v_anchor
+    AND (ended_at IS NULL OR ended_at >= v_anchor);
 
   -- Desde el último snapshot powered (plugged y en casa) antes del ancla: ahí el clasificador
   -- está armado y sin corte abierto.

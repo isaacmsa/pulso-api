@@ -66,6 +66,7 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 - **Supabase pausa un proyecto tras 1 semana sin actividad.** Producción nunca se pausa porque los latidos son constantes; staging sí puede pausarse. Reactivarlo desde el panel.
 - **Supabase gratis no incluye respaldos descargables**: el respaldo es el workflow nocturno propio (A-010).
 - **Versiones viejas de la app** siguen mandando lotes durante meses. Un campo obligatorio nuevo las rompe.
+- **`sql.json()` no sirve con el cliente de Drizzle**: `drizzle-orm/postgres-js` reemplaza los serializadores de `json` y `jsonb` (114 y 3802) del cliente compartido por unos que no hacen nada, y un objeto llega como objeto a postgres.js. Para un parámetro `jsonb` se pasa `JSON.stringify(...)`.
 - **Expo Push**: el envío devuelve tickets y el resultado real llega después en los recibos. Un `DeviceNotRegistered` significa borrar el `push_token`.
 
 ## Documentación

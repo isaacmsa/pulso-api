@@ -128,8 +128,10 @@ app.apply_outages(p_home_id uuid, p_revision bigint, p_changes jsonb,
 ```text
 anchor  = mínimo de:
           · el at más viejo de los eventos aceptados en este lote,
-          · el started_at del corte abierto de la casa, si hay uno,
           · outageStart − CONFIRMATION_TOLERANCE_MS de cada confirmación aceptada
+anchor  = mínimo entre anchor y el started_at de cada corte guardado que lo contiene:
+          status <> 'sin_datos', started_at < anchor y (ended_at IS NULL o ended_at >= anchor).
+          Incluye el corte abierto.
 from    = at del último snapshot powered de la casa con at < anchor,
           donde powered = plugged AND coalesce(homeWifi, onWifi) sobre el payload;
           si no hay ninguno, el at más viejo de la casa
@@ -137,7 +139,7 @@ window  = eventos de la casa con at >= from
 outages = cortes de la casa con status <> 'sin_datos' y (status = 'abierto' o started_at >= from)
 ```
 
-Empezar en un snapshot `powered` reproduce el estado exacto del clasificador: armado y sin corte abierto. `outageStart` no lleva desfase, porque es la hora del servidor que el teléfono devuelve. El 300 000 de la función es `CONFIRMATION_TOLERANCE_MS`: si cambia la constante, cambia la función en una migración nueva.
+Empezar en un snapshot `powered` reproduce el estado exacto del clasificador: armado y sin corte abierto. Por eso el ancla nunca cae dentro de un corte guardado. Un corte manual sigue abierto aunque lleguen snapshots `powered` repetidos, y empezar a mitad de él haría que el clasificador inventara otro corte, por ejemplo con un evento atrasado que cae dentro de un corte manual ya cerrado. `outageStart` no lleva desfase, porque es la hora del servidor que el teléfono devuelve. El 300 000 de la función es `CONFIRMATION_TOLERANCE_MS`: si cambia la constante, cambia la función en una migración nueva.
 
 **`apply_outages`** bloquea la casa con `SELECT … FOR UPDATE` y compara `homes.ingest_revision` con `p_revision`. Si otro lote ingirió entretanto, no aplica nada y devuelve `applied: false` con el estado actual (A-016). Si coincide:
 
