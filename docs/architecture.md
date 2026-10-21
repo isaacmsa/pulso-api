@@ -112,7 +112,7 @@ Supabase publica por defecto las tablas del esquema `public` en su API REST, acc
 
 ## CI y despliegue
 
-- **`ci.yml`**, en cada push y PR: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test` (con un PostgreSQL de `services:` de GitHub Actions) y `pnpm openapi:check` (falla si `openapi.json` no está al día).
+- **`ci.yml`**, en cada push y PR: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test` (con un PostgreSQL de `services:` de GitHub Actions), `pnpm openapi:check` (falla si `openapi.json` no está al día) y `wrangler types --check` (falla si `worker-configuration.d.ts` no coincide con `wrangler.jsonc`).
 - **`deploy.yml`**: con cada push a `main`, aplica las migraciones a Supabase staging (`drizzle-kit migrate` por el pooler de sesión: IPv4, puerto 5432, usuario `pulso_api.<ref>`, A-017) y despliega el Worker. La conexión directa de Supabase gratis es solo IPv6 y los runners de GitHub no tienen IPv6; Hyperdrive sí usa la conexión directa. Producción se despliega a mano (`workflow_dispatch`, con aprobación en GitHub Environments), en el mismo orden: primero las migraciones, después el código. Secretos de GitHub: `CLOUDFLARE_API_TOKEN` (solo con permisos de Workers y Hyperdrive), `CLOUDFLARE_ACCOUNT_ID`, `STAGING_DATABASE_URL` y `PRODUCTION_DATABASE_URL`.
 - **Rollback**: `wrangler rollback` vuelve a la versión anterior del Worker en segundos. Las migraciones solo agregan, así que el código anterior sigue funcionando con el esquema nuevo.
 - **Antes de cambiar el contrato**: el cambio es aditivo, el test de contrato con `test/fixtures/` sigue en verde, se despliega el backend y recién después la app regenera su cliente.

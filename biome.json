@@ -34,7 +34,7 @@
   },
   "overrides": [
     {
-      "includes": ["test/fixtures/**"],
+      "includes": ["test/fixtures/**", "openapi.json"],
       "formatter": {
         "enabled": false
       }

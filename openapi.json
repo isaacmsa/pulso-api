@@ -1,0 +1,873 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Pulso API",
+    "version": "1.0.0"
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Token del dispositivo, el que devuelve `POST /v1/devices`."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "validation_failed",
+                  "invalid_token",
+                  "not_found",
+                  "home_exists",
+                  "rate_limited",
+                  "internal_error"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "issues": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "monitoreo"
+        ],
+        "summary": "La API y la base responden",
+        "responses": {
+          "200": {
+            "description": "La base respondió a un `SELECT 1`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "La base no respondió",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices": {
+      "post": {
+        "tags": [
+          "dispositivos"
+        ],
+        "summary": "Registrar el teléfono al primer arranque",
+        "description": "Devuelve el token una sola vez: la API solo guarda su SHA-256.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "appVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32,
+                    "example": "1.0.0"
+                  }
+                },
+                "required": [
+                  "appVersion"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Dispositivo registrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deviceId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "token": {
+                      "type": "string",
+                      "minLength": 87,
+                      "maxLength": 87
+                    }
+                  },
+                  "required": [
+                    "deviceId",
+                    "token"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cuerpo inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Más de 5 registros por minuto desde esta IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices/me": {
+      "patch": {
+        "tags": [
+          "dispositivos"
+        ],
+        "summary": "Guardar el push token y la versión de la app",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "pushToken": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "appVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32,
+                    "example": "1.0.0"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Guardado"
+          },
+          "400": {
+            "description": "Cuerpo inválido o sin campos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "dispositivos"
+        ],
+        "summary": "Borrar el dispositivo, su casa y todo lo asociado",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Borrado, con su casa, eventos, cortes y seguidores"
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/homes": {
+      "post": {
+        "tags": [
+          "casas"
+        ],
+        "summary": "Este teléfono vigila mi casa: crea la casa del dispositivo",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "alias": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "default": "Casa",
+                    "example": "Casa de mamá"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Casa creada y asignada al dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "shareCode": {
+                      "type": "string",
+                      "pattern": "^[2-9A-HJKMNP-Z]{8}$"
+                    }
+                  },
+                  "required": [
+                    "homeId",
+                    "shareCode"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cuerpo inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`home_exists`: el dispositivo ya vigila una casa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/homes/me": {
+      "patch": {
+        "tags": [
+          "casas"
+        ],
+        "summary": "Cambiar el alias o el modo (`base` o `ups`) de mi casa",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "alias": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "example": "Casa de mamá"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "base",
+                      "ups"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Guardado"
+          },
+          "400": {
+            "description": "Cuerpo inválido o sin campos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El dispositivo no tiene casa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/homes/me/status": {
+      "get": {
+        "tags": [
+          "casas"
+        ],
+        "summary": "Estado actual de mi casa",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado de la casa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "con_luz",
+                        "sin_luz",
+                        "sin_noticias"
+                      ]
+                    },
+                    "since": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "alias": {
+                      "type": "string"
+                    },
+                    "openOutageStart": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "since",
+                    "alias",
+                    "openOutageStart"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El dispositivo no tiene casa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "post": {
+        "tags": [
+          "eventos"
+        ],
+        "summary": "Subir un lote de eventos (hasta 200) o un latido vacío",
+        "description": "Idempotente por el `id` de cada evento: un reintento cuenta como `duplicated` y no cambia nada. Responde el estado de la casa después de clasificar.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sentAt": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "diagnostics": {
+                    "type": "object",
+                    "properties": {
+                      "appVersion": {
+                        "type": "string"
+                      },
+                      "manufacturer": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "sdkInt": {
+                        "type": "integer"
+                      },
+                      "standbyBucket": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "ignoringBatteryOptimizations": {
+                        "type": "boolean"
+                      },
+                      "pendingEvents": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "appVersion",
+                      "manufacturer",
+                      "model",
+                      "sdkInt",
+                      "standbyBucket",
+                      "ignoringBatteryOptimizations",
+                      "pendingEvents"
+                    ]
+                  },
+                  "events": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "snapshot"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "at": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "network_callback",
+                                "heartbeat",
+                                "charging_job",
+                                "power_receiver",
+                                "transition_check",
+                                "app_open",
+                                "boot"
+                              ]
+                            },
+                            "plugged": {
+                              "type": "boolean"
+                            },
+                            "onWifi": {
+                              "type": "boolean"
+                            },
+                            "homeWifi": {
+                              "type": [
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "internet": {
+                              "type": [
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "interactive": {
+                              "type": [
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "batteryPct": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0,
+                              "maximum": 100
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id",
+                            "at",
+                            "source",
+                            "plugged",
+                            "onWifi",
+                            "homeWifi",
+                            "internet",
+                            "interactive",
+                            "batteryPct"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "report"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "at": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "value": {
+                              "type": "string",
+                              "enum": [
+                                "hay_luz",
+                                "fluctuando",
+                                "sin_luz"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id",
+                            "at",
+                            "value"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "confirmation"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "at": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "outageStart": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "answer": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id",
+                            "at",
+                            "outageStart",
+                            "answer"
+                          ]
+                        }
+                      ]
+                    },
+                    "maxItems": 200
+                  }
+                },
+                "required": [
+                  "sentAt",
+                  "diagnostics",
+                  "events"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lote guardado y clasificado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "duplicated": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "status": {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "con_luz",
+                            "sin_luz",
+                            "sin_noticias"
+                          ]
+                        },
+                        "since": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "alias": {
+                          "type": "string"
+                        },
+                        "openOutageStart": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "exclusiveMinimum": 0
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "since",
+                        "alias",
+                        "openOutageStart"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "accepted",
+                    "duplicated",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Lote inválido o de más de 200 eventos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El dispositivo no vigila ninguna casa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Más de 30 lotes por minuto de este dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

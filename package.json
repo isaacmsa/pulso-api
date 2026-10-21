@@ -19,6 +19,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "dev": "wrangler dev",
+    "deploy:staging": "wrangler deploy --env staging",
+    "openapi:export": "tsx scripts/export-openapi.ts",
+    "openapi:check": "tsx scripts/check-openapi.ts",
     "cf-typegen": "wrangler types --env-file .dev.vars.example"
   },
   "dependencies": {

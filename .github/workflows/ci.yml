@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -36,3 +39,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Contrato OpenAPI al día
+        run: pnpm openapi:check
+      - name: Tipos de Workers al día con wrangler.jsonc
+        run: pnpm exec wrangler types --env-file .dev.vars.example --check

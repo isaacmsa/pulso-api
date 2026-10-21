@@ -1,11 +1,13 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
+import { Scalar } from '@scalar/hono-api-reference';
 import type { AppEnv } from './env';
 import { withDb } from './middleware/db';
-import { errorHandler, notFoundHandler, validationHook } from './middleware/errors';
+import { apiError, errorHandler, notFoundHandler, validationHook } from './middleware/errors';
 import { devices } from './modules/devices';
 import { events } from './modules/events';
 import { health } from './modules/health';
 import { homes } from './modules/homes';
+import { buildOpenApiDocument } from './openapi';
 
 export type CreateAppOptions = {
   /** Se llama por cada consulta a la base. Los tests lo usan para contar el presupuesto. */
@@ -33,6 +35,14 @@ export function createApp(options: CreateAppOptions = {}): OpenAPIHono<AppEnv> {
   app.route('/', devices);
   app.route('/', homes);
   app.route('/', events);
+  // Ninguna de las dos toca la base. `/docs` solo se expone donde EXPOSE_DOCS es 'true' (staging).
+  app.get('/openapi.json', (c) => c.json(buildOpenApiDocument(app)));
+  app.get(
+    '/docs',
+    (c, next) =>
+      c.env.EXPOSE_DOCS === 'true' ? next() : apiError(c, 404, 'not_found', 'No existe esa ruta.'),
+    Scalar({ url: '/openapi.json' }),
+  );
   return app;
 }
 

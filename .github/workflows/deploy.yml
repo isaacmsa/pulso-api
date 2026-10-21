@@ -1,0 +1,64 @@
+name: deploy
+
+# Staging en cada push a `main` (A-017: las migraciones usan el pooler de sesión de Supabase).
+# Antes de desplegar aplica las migraciones, que solo agregan, para que `wrangler rollback` siga
+# funcionando con el código anterior (regla 10).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency: deploy-staging
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Revisar que staging esté configurado
+        id: gate
+        run: |
+          if grep -q '<pendiente-isaac>' wrangler.jsonc; then
+            echo "::notice title=Deploy omitido::wrangler.jsonc aún tiene el id de Hyperdrive de staging pendiente (<pendiente-isaac>). No se migra ni se despliega hasta que Isaac lo ponga."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Revisar los secretos de GitHub
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          for name in STAGING_DATABASE_URL CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Faltan secretos::Cargar en Settings > Secrets and variables > Actions:$missing"
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v6
+        if: steps.gate.outputs.ready == 'true'
+      - uses: actions/setup-node@v7
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.gate.outputs.ready == 'true'
+      - name: Aplicar migraciones en staging
+        if: steps.gate.outputs.ready == 'true'
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+      - name: Desplegar pulso-api-staging
+        if: steps.gate.outputs.ready == 'true'
+        run: pnpm exec wrangler deploy --env staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
