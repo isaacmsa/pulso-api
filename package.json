@@ -12,16 +12,23 @@
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "spike:analyze": "tsx scripts/spike/analyze.ts"
+    "test:unit": "vitest run --project unit",
+    "spike:analyze": "tsx scripts/spike/analyze.ts",
+    "db:up": "docker compose -f compose.dev.yaml up -d --wait",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.6.3",
+    "drizzle-orm": "^0.45.4",
     "hono": "^4.13.13",
+    "postgres": "^3.4.9",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@types/node": "^26.6.5",
+    "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "vitest": "^5.0.5"

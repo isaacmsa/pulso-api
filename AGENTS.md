@@ -18,12 +18,13 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 | Tarea | Comando |
 | --- | --- |
 | Instalar dependencias | `pnpm install` |
-| Lint, tipos y tests | `pnpm lint && pnpm typecheck && pnpm test` |
+| Lint, tipos y tests (los de integración necesitan `pnpm db:up` y un `.env` copiado de `.env.example`) | `pnpm lint && pnpm typecheck && pnpm test` |
+| Solo los tests unitarios (sin Docker) | `pnpm test:unit` |
 | Analizar un exporte del registrador | `pnpm spike:analyze <archivo.json>` |
-| PostgreSQL local (fase 1) | `docker compose -f compose.dev.yaml up -d` |
+| PostgreSQL local | `pnpm db:up` (`docker compose -f compose.dev.yaml up -d --wait`, puerto 54322) |
 | API local (fase 1) | `pnpm dev` (`wrangler dev`, puerto 8787) |
 | El Xiaomi contra la API local (fase 1) | `adb reverse tcp:8787 tcp:8787` |
-| Generar y aplicar migraciones (fase 1) | `pnpm db:generate` / `pnpm db:migrate` (usa `DATABASE_URL`) |
+| Generar y aplicar migraciones | `pnpm db:generate` / `pnpm db:migrate` (usa `DATABASE_URL`) |
 | Regenerar y verificar el contrato (fase 1) | `pnpm openapi:export` / `pnpm openapi:check` |
 | Deploy a staging (fase 1) | Con cada push a `main` (`deploy.yml`); a mano: `pnpm deploy:staging` |
 | Secreto en un entorno | `pnpm exec wrangler secret put <NOMBRE> --env staging` |

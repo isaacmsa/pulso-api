@@ -21,7 +21,7 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 ## Fase 1 · API en staging (S3, ~10 h)
 
 - [ ] Cuentas de Cloudflare y Supabase. Proyectos `pulso-staging` y `pulso` en `us-east-1`, rol `pulso_api` en cada uno, Hyperdrive por entorno y `wrangler.jsonc` con entornos, Rate Limiting y crons (1 h)
-- [ ] Drizzle: `src/db/schema.ts` en el esquema `app` con RLS, `drizzle-kit generate`, `compose.dev.yaml` con PostgreSQL local y Hyperdrive con `localConnectionString` (1,5 h)
+- [x] Drizzle: `src/db/schema.ts` en el esquema `app` con RLS, `drizzle-kit generate`, `compose.dev.yaml` con PostgreSQL local y Hyperdrive con `localConnectionString` (1,5 h)
 - [ ] Funciones `app.ingest_batch` y `app.apply_outages` en una migración, con tests de integración contra PostgreSQL (1,5 h)
 - [ ] Middleware: auth con SHA-256 y latido en un solo `UPDATE … RETURNING`, rate limit y errores (1,5 h)
 - [ ] `devices` y `homes`: `POST /v1/devices`, `POST /v1/homes`, `PATCH`, `DELETE` en cascada (1 h)

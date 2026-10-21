@@ -23,6 +23,7 @@ CREATE TABLE app.homes (
   status             text NOT NULL DEFAULT 'con_luz'
                      CHECK (status IN ('con_luz','sin_luz','sin_noticias')),
   status_since       bigint NOT NULL,                        -- epoch ms
+  ingest_revision    bigint NOT NULL DEFAULT 0,              -- sube con cada lote; apply_outages solo aplica si no cambió (A-016)
   created_at         bigint NOT NULL
 );
 
