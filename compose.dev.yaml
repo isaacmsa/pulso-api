@@ -1,9 +1,9 @@
-# PostgreSQL local de Pulso, misma versión mayor que Supabase.
+# PostgreSQL local de Pulso, la misma versión que Supabase staging (17.11). Si Supabase sube de versión, cambiar aquí y en ci.yml.
 # Los roles y las bases salen de docker/postgres-init.sql (solo corre al crear el volumen).
 # La contraseña del superusuario es de desarrollo y no es secreta.
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17.11-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres

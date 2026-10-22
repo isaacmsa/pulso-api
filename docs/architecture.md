@@ -54,7 +54,7 @@ pulso-api/
 ├─ test/
 │  ├─ fixtures/                 # exportes reales y un lote por versión de la app publicada
 │  └─ integration/              # repositorios y rutas contra PostgreSQL
-├─ compose.dev.yaml             # PostgreSQL local, misma versión mayor que Supabase
+├─ compose.dev.yaml             # PostgreSQL local, 17.11 como Supabase staging
 ├─ openapi.json                 # contrato generado y versionado
 ├─ wrangler.jsonc               # local y staging (production en la fase 2), Hyperdrive, Rate Limiting; crons en las fases 3 y 4
 ├─ worker-configuration.d.ts    # tipos de Workers generados con `pnpm cf-typegen` (versionados)
