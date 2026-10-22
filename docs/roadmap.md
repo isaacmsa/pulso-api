@@ -6,7 +6,7 @@
 
 El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs/roadmap.md`. Las semanas coinciden: S1 es del 19 al 25 de octubre.
 
-**Estado actual:** fase 1 implementada y probada en local; falta el deploy a staging (cuentas, Hyperdrive y secretos de Isaac). Plan detallado en `docs/plans/2026-10-20-fase-1-api.md`.
+**Estado actual:** fase 1 en staging (`https://pulso-api-staging.isaac-mendozasa.workers.dev`). Falta que Isaac confirme en el panel de Hyperdrive que un latido gasta una consulta y que `anon` no lee `app.homes`. Plan detallado en `docs/plans/2026-10-20-fase-1-api.md`.
 
 ## Fase 0 · Contrato y clasificador (S1 y S2, ~8,5 h)
 
@@ -20,13 +20,13 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 
 ## Fase 1 · API en staging (S3, ~10 h)
 
-- [ ] Cuentas de Cloudflare y Supabase. Proyecto `pulso-staging` en `us-east-1` con el rol `pulso_api`, su Hyperdrive (sin caché) y el `id` en `wrangler.jsonc`. Producción se crea en la fase 2 (A-018) y los crons llegan en las fases 3 y 4 (A-019) (1 h)
+- [x] Cuentas de Cloudflare y Supabase. Proyecto `pulso-staging` en `us-west-2` (A-026) con el rol `pulso_api`, su Hyperdrive (sin caché) y el `id` en `wrangler.jsonc`. Producción se crea en la fase 2 (A-018) y los crons llegan en las fases 3 y 4 (A-019) (1 h)
 - [x] Drizzle: `src/db/schema.ts` en el esquema `app` con RLS, `drizzle-kit generate`, `compose.dev.yaml` con PostgreSQL local y Hyperdrive con `localConnectionString` (1,5 h)
 - [x] Funciones `app.ingest_batch` y `app.apply_outages` en una migración, con tests de integración contra PostgreSQL (1,5 h)
 - [x] Middleware: auth con SHA-256 y latido en un solo `UPDATE … RETURNING`, rate limit y errores (1,5 h)
 - [x] `devices` y `homes`: `POST /v1/devices`, `POST /v1/homes`, `PATCH`, `DELETE` en cascada (1 h)
 - [x] `POST /v1/events` con `reconcileOutages` y `deriveHomeStatus` en `domain/` (con tests) y `GET /v1/homes/me/status` (2 h)
-- [ ] `GET /openapi.json`, `/docs` en staging, `pnpm openapi:export` y `openapi:check`; test de contrato con un lote real; `deploy.yml` con migraciones y deploy a staging (1,5 h)
+- [x] `GET /openapi.json`, `/docs` en staging, `pnpm openapi:export` y `openapi:check`; test de contrato con un lote real; `deploy.yml` con migraciones y deploy a staging (1,5 h)
 
 **Lista cuando:** reenviar el mismo lote devuelve `duplicated` igual al número de eventos en staging, y un latido gasta una sola consulta (verificado en el panel de Hyperdrive).
 

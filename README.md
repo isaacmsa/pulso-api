@@ -6,3 +6,4 @@ Backend de [Pulso](../../mobile/pulso-app/README.md), la app que detecta sola lo
 - Endpoints y contrato: [docs/api.md](docs/api.md)
 - Cómo se decide que hubo un corte: [docs/classifier.md](docs/classifier.md)
 - Estado: [docs/roadmap.md](docs/roadmap.md)
+- Staging: <https://pulso-api-staging.isaac-mendozasa.workers.dev> (contrato en `/openapi.json`, referencia en `/docs`)

@@ -9,7 +9,7 @@ Backend de Pulso, la app Android que detecta sola los cortes de luz de una casa 
 
 La app vive en `pulso-app` (`~/projects/personal/mobile/pulso-app`). Ahí están el producto, la detección en el teléfono, la privacidad, Play Store y el roadmap maestro.
 
-**Estado actual:** fase 1 (API en staging) implementada y probada en local; falta el deploy a staging, que espera las cuentas, el Hyperdrive y los secretos de Isaac. Lo pendiente está en `docs/roadmap.md` y el plan paso a paso en `docs/plans/`.
+**Estado actual:** fase 1 desplegada en staging (`https://pulso-api-staging.isaac-mendozasa.workers.dev`); falta la confirmación del panel de Hyperdrive. Lo pendiente está en `docs/roadmap.md` y el plan paso a paso en `docs/plans/`.
 
 ## Comandos
 
@@ -64,7 +64,7 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 - **10 ms de CPU por petición en el plan gratuito**: la espera de la base no cuenta, pero el JSON y Zod sí. La clasificación corre solo sobre la ventana de la casa. Nada pesado en una petición.
 - **Una conexión por petición**: el cliente de postgres.js se crea dentro del handler con `env.HYPERDRIVE.connectionString`, nunca a nivel de módulo.
 - **`bigint` en postgres.js** llega como `string` por defecto. Configurar Drizzle con `mode: 'number'` en las columnas de horas (los epoch ms caben en un `number`).
-- **Migraciones por el pooler de sesión** de Supabase (IPv4, puerto 5432, usuario `pulso_api.<ref>`, A-017), nunca por Hyperdrive ni por el pooler en modo transacción (puerto 6543). La conexión directa de Supabase gratis es solo IPv6 y los runners de GitHub no la alcanzan; Hyperdrive sí usa la directa.
+- **Migraciones por el pooler de sesión** de Supabase (IPv4, puerto 5432, usuario `pulso_api.<ref>` con la contraseña de `pulso_api`, no la de `postgres`, A-017). Staging está en `us-west-2`: host `aws-1-us-west-2.pooler.supabase.com` (A-026); un host de otra región responde "tenant not found". Nunca por Hyperdrive ni por el pooler en modo transacción (puerto 6543). La conexión directa de Supabase gratis es solo IPv6 y los runners de GitHub no la alcanzan; Hyperdrive sí usa la directa.
 - **Supabase pausa un proyecto tras 1 semana sin actividad.** Por eso el proyecto de producción se crea en la fase 2 (A-018); con latidos constantes no se pausa. Staging sí puede pausarse. Reactivarlo desde el panel.
 - **Supabase gratis no incluye respaldos descargables**: el respaldo es el workflow nocturno propio (A-010).
 - **Versiones viejas de la app** siguen mandando lotes durante meses. Un campo obligatorio nuevo las rompe.

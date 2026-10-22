@@ -95,10 +95,10 @@ La consulta 1 es un `UPDATE … SET last_seen_at = … WHERE token_hash = … RE
 | Entorno | Worker | Base de datos | Uso |
 | --- | --- | --- | --- |
 | Local | `wrangler dev` en `localhost:8787` | PostgreSQL de `compose.dev.yaml` (vía `localConnectionString` de Hyperdrive) | El Xiaomi llega con `adb reverse tcp:8787 tcp:8787` |
-| Staging | `pulso-api-staging.<subdominio>.workers.dev` | Proyecto de Supabase `pulso-staging` | Dev builds y APK de prueba; `/docs` visible |
+| Staging | `https://pulso-api-staging.isaac-mendozasa.workers.dev` | Proyecto de Supabase `pulso-staging` | Dev builds y APK de prueba; `/docs` visible |
 | Producción (desde la fase 2, A-018) | `pulso-api.<subdominio>.workers.dev` | Proyecto de Supabase `pulso` | Builds de Play |
 
-Los dos proyectos de Supabase gratuitos se usan uno para staging y otro para producción. Ambos en la región `us-east-1`, la más cercana a Venezuela. Producción se crea en la fase 2, cuando empieza a recibir tráfico: un proyecto sin uso se pausa a la semana (A-018). Staging se pausa si pasa una semana sin uso; se reactiva desde el panel. Cada Hyperdrive va con la caché de consultas desactivada (A-015).
+Los dos proyectos de Supabase gratuitos se usan uno para staging y otro para producción. Staging quedó en `us-west-2` (Oregón) y se queda ahí; producción va en `us-east-1`, la más cercana a Venezuela (A-026). El pooler de sesión de staging es `aws-1-us-west-2.pooler.supabase.com`. Producción se crea en la fase 2, cuando empieza a recibir tráfico: un proyecto sin uso se pausa a la semana (A-018). Staging se pausa si pasa una semana sin uso; se reactiva desde el panel. Cada Hyperdrive va con la caché de consultas desactivada (A-015).
 
 Secretos: la cadena de conexión vive en la configuración de Hyperdrive de cada entorno, no en el código. El resto se carga con `wrangler secret put --env <entorno>`; en local, en `.dev.vars` (en `.gitignore`). En la v1 son `TOKEN_SIGNING_KEY` (desde la fase 1; rotarla invalida todos los tokens, A-021), `EXPO_ACCESS_TOKEN` (desde la fase 3) y `SENTRY_DSN` (desde la fase 4). Staging y producción nunca comparten secretos ni contraseñas de base.
 
