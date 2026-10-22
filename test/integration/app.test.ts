@@ -33,6 +33,7 @@ function testEnv(overrides: Partial<Bindings> = {}): Bindings {
     RATE_LIMIT_REGISTER: limiter(),
     RATE_LIMIT_EVENTS: limiter(),
     RATE_LIMIT_API: limiter(),
+    RATE_LIMIT_PUBLIC: limiter(),
     ENVIRONMENT: 'test',
     TOKEN_SIGNING_KEY: TEST_SIGNING_KEY,
     ...overrides,
@@ -86,10 +87,27 @@ describe('worker', () => {
     return home;
   }
 
-  it('health responde ok', async () => {
-    const res = await appForTest().request('/health', {}, testEnv());
+  it('health responde ok con una consulta', async () => {
+    let queries = 0;
+    const res = await appForTest({ onQuery: () => queries++ }).request('/health', {}, testEnv());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+    expect(queries).toBe(1);
+  });
+
+  it('health con más de 60 por minuto desde una IP responde 429 sin tocar la base', async () => {
+    let queries = 0;
+    const publicLimit = limiter(false);
+    const res = await appForTest({ onQuery: () => queries++ }).request(
+      '/health',
+      { headers: { 'cf-connecting-ip': '203.0.113.7' } },
+      testEnv({ RATE_LIMIT_PUBLIC: publicLimit }),
+    );
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('60');
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('rate_limited');
+    expect(publicLimit.keys).toEqual(['203.0.113.7']);
+    expect(queries).toBe(0);
   });
 
   it('sin token responde 401 sin tocar la base', async () => {

@@ -32,7 +32,9 @@ export const postEventsRoute = createRoute({
       description: 'Lote guardado y clasificado',
       content: {
         'application/json': {
-          schema: z.object({ accepted: count, duplicated: count, status: homeStatusSchema }),
+          schema: z
+            .object({ accepted: count, duplicated: count, status: homeStatusSchema })
+            .openapi('IngestEventsResponse'),
         },
       },
     },

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { classify } from '../../src/domain/detection/classify';
 import {
   type DeviceEvent,
@@ -37,6 +37,7 @@ function testEnv(): Bindings {
     RATE_LIMIT_REGISTER: limiter(),
     RATE_LIMIT_EVENTS: limiter(),
     RATE_LIMIT_API: limiter(),
+    RATE_LIMIT_PUBLIC: limiter(),
     ENVIRONMENT: 'test',
     TOKEN_SIGNING_KEY: TEST_SIGNING_KEY,
   };
@@ -63,6 +64,10 @@ describe('POST /v1/events', () => {
     await truncateAll(sql);
     queries = 0;
     now = at(2000);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   afterAll(async () => {
@@ -350,6 +355,34 @@ describe('POST /v1/events', () => {
     const [count] = await sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM app.events WHERE home_id = ${homeId}`;
     expect(count?.n).toBe(0);
+  });
+
+  it('un lote de más de 256 KB responde 413 sin tocar la base', async () => {
+    const { token } = await registerWithHome();
+    const batch = {
+      sentAt: now,
+      diagnostics: DIAGNOSTICS,
+      events: [],
+      relleno: 'x'.repeat(300_000),
+    };
+
+    const res = await call('POST', '/v1/events', token, batch);
+
+    expect(res.status).toBe(413);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'validation_failed',
+    );
+    expect(queries).toBe(0);
+  });
+
+  it('cada clasificación deja en el log el tamaño de la ventana, sin el token', async () => {
+    const { token, homeId } = await registerWithHome();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await postOk(token, [snap(0, true, true), snap(5, false, false)]);
+
+    expect(log).toHaveBeenCalledWith('clasificación', { homeId, window: 2 });
+    expect(JSON.stringify(log.mock.calls)).not.toContain(token);
   });
 
   it('sin casa responde 404', async () => {

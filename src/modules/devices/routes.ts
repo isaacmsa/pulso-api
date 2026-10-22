@@ -17,7 +17,9 @@ export const registerRoute = createRoute({
   request: {
     body: {
       required: true,
-      content: { 'application/json': { schema: z.object({ appVersion }) } },
+      content: {
+        'application/json': { schema: z.object({ appVersion }).openapi('RegisterDeviceRequest') },
+      },
     },
   },
   responses: {
@@ -25,7 +27,9 @@ export const registerRoute = createRoute({
       description: 'Dispositivo registrado',
       content: {
         'application/json': {
-          schema: z.object({ deviceId: z.uuid(), token: z.string().length(87) }),
+          schema: z
+            .object({ deviceId: z.uuid(), token: z.string().length(87) })
+            .openapi('RegisterDeviceResponse'),
         },
       },
     },
@@ -37,12 +41,13 @@ export const registerRoute = createRoute({
 
 export const patchDeviceBody = z
   .object({
-    pushToken: z.string().min(1).nullable().optional(),
+    pushToken: z.string().min(1).max(256).nullable().optional(), // ExponentPushToken[…]
     appVersion: appVersion.optional(),
   })
   .refine((body) => Object.values(body).some((value) => value !== undefined), {
     message: 'Manda al menos un campo.',
-  });
+  })
+  .openapi('UpdateDeviceRequest');
 
 export const patchDeviceRoute = createRoute({
   operationId: 'updateDevice',

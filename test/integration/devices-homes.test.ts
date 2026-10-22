@@ -23,6 +23,7 @@ function testEnv(overrides: Partial<Bindings> = {}): Bindings {
     RATE_LIMIT_REGISTER: limiter(),
     RATE_LIMIT_EVENTS: limiter(),
     RATE_LIMIT_API: limiter(),
+    RATE_LIMIT_PUBLIC: limiter(),
     ENVIRONMENT: 'test',
     TOKEN_SIGNING_KEY: TEST_SIGNING_KEY,
     ...overrides,
@@ -255,6 +256,34 @@ describe('devices y homes', () => {
     const cleared = await call('PATCH', '/v1/devices/me', { token, body: { pushToken: null } });
     expect(cleared.status).toBe(204);
     expect(await read()).toEqual({ push_token: null, app_version: '1.2.0' });
+  });
+
+  it('PATCH del dispositivo con un push token de más de 256 caracteres responde 400', async () => {
+    const { token } = await register();
+    const res = await call('PATCH', '/v1/devices/me', {
+      token,
+      body: { pushToken: 'x'.repeat(257) },
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'validation_failed',
+    );
+  });
+
+  it('un cuerpo de más de 256 KB responde 413 validation_failed sin tocar la base', async () => {
+    const body = JSON.stringify({ appVersion: '1.0.0', relleno: 'x'.repeat(256 * 1024) });
+    // con Content-Length se corta antes de leer; sin él, al pasar de 256 KB leyendo
+    for (const headers of [
+      { 'content-type': 'application/json', 'content-length': String(body.length) },
+      { 'content-type': 'application/json' },
+    ]) {
+      const res = await app.request('/v1/devices', { method: 'POST', headers, body }, testEnv());
+      expect(res.status).toBe(413);
+      expect(await res.json()).toEqual({
+        error: { code: 'validation_failed', message: expect.any(String) },
+      });
+    }
+    expect(queries).toBe(0);
   });
 
   it('PATCH del dispositivo sin campos responde 400', async () => {

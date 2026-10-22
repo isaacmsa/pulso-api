@@ -9,7 +9,7 @@ Backend de Pulso, la app Android que detecta sola los cortes de luz de una casa 
 
 La app vive en `pulso-app` (`~/projects/personal/mobile/pulso-app`). Ahí están el producto, la detección en el teléfono, la privacidad, Play Store y el roadmap maestro.
 
-**Estado actual:** fase 0 (contrato y clasificador). Lo pendiente está en `docs/roadmap.md` y el plan paso a paso en `docs/plans/`.
+**Estado actual:** fase 1 (API en staging) implementada y probada en local; falta el deploy a staging, que espera las cuentas, el Hyperdrive y los secretos de Isaac. Lo pendiente está en `docs/roadmap.md` y el plan paso a paso en `docs/plans/`.
 
 ## Comandos
 
@@ -28,7 +28,7 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 | Generar y aplicar migraciones | `pnpm db:generate` / `pnpm db:migrate` (usa `DATABASE_URL`) |
 | Regenerar los tipos del Worker tras cambiar `wrangler.jsonc` | `pnpm cf-typegen` |
 | Regenerar y verificar el contrato (fase 1) | `pnpm openapi:export` / `pnpm openapi:check` |
-| Deploy a staging (fase 1) | Con cada push a `main` (`deploy.yml`); a mano: `pnpm deploy:staging` |
+| Deploy a staging (fase 1) | Cuando `ci` pasa en un push a `main` (`deploy.yml`, despliega el commit que probó `ci`); a mano: `pnpm deploy:staging` |
 | Secreto en un entorno | `pnpm exec wrangler secret put <NOMBRE> --env staging` |
 | Volver a la versión anterior | `pnpm exec wrangler rollback --env production` |
 

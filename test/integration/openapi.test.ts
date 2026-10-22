@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Bindings } from '../../src/env';
 import { createApp } from '../../src/index';
 
@@ -13,6 +13,7 @@ function envWith(overrides: Partial<Bindings> = {}): Bindings {
     RATE_LIMIT_REGISTER: limiter,
     RATE_LIMIT_EVENTS: limiter,
     RATE_LIMIT_API: limiter,
+    RATE_LIMIT_PUBLIC: limiter,
     ENVIRONMENT: 'test',
     TOKEN_SIGNING_KEY: 'x',
     ...overrides,
@@ -31,6 +32,41 @@ describe('documentación del contrato', () => {
     );
     expect(await res.json()).toEqual(committed);
     expect(queries).toBe(0);
+  });
+
+  it('nombra los esquemas para que el cliente generado tenga tipos estables', () => {
+    const committed = JSON.parse(
+      readFileSync(join(import.meta.dirname, '../../openapi.json'), 'utf8'),
+    ) as { components: { schemas: Record<string, unknown> } };
+    expect(Object.keys(committed.components.schemas).sort()).toEqual(
+      [
+        'ConfirmationEvent',
+        'CreateHomeRequest',
+        'CreateHomeResponse',
+        'DeviceEvent',
+        'Diagnostics',
+        'Error',
+        'EventBatch',
+        'Health',
+        'HomeStatus',
+        'IngestEventsResponse',
+        'RegisterDeviceRequest',
+        'RegisterDeviceResponse',
+        'ReportEvent',
+        'SnapshotEvent',
+        'UpdateDeviceRequest',
+        'UpdateHomeRequest',
+      ].sort(),
+    );
+  });
+
+  it('GET /openapi.json arma el documento una sola vez por isolate', async () => {
+    const app = createApp();
+    const build = vi.spyOn(app, 'getOpenAPI31Document');
+    for (let i = 0; i < 3; i++) {
+      expect((await app.request('/openapi.json', {}, envWith())).status).toBe(200);
+    }
+    expect(build).toHaveBeenCalledTimes(1);
   });
 
   it('GET /docs responde 404 con la forma de error si EXPOSE_DOCS no es true', async () => {

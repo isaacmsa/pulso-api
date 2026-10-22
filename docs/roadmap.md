@@ -6,7 +6,7 @@
 
 El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs/roadmap.md`. Las semanas coinciden: S1 es del 19 al 25 de octubre.
 
-**Estado actual:** fase 0. Plan detallado en `docs/plans/2026-10-19-fase-0-clasificador.md`.
+**Estado actual:** fase 1 implementada y probada en local; falta el deploy a staging (cuentas, Hyperdrive y secretos de Isaac). Plan detallado en `docs/plans/2026-10-20-fase-1-api.md`.
 
 ## Fase 0 · Contrato y clasificador (S1 y S2, ~8,5 h)
 

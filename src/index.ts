@@ -36,7 +36,12 @@ export function createApp(options: CreateAppOptions = {}): OpenAPIHono<AppEnv> {
   app.route('/', homes);
   app.route('/', events);
   // Ninguna de las dos toca la base. `/docs` solo se expone donde EXPOSE_DOCS es 'true' (staging).
-  app.get('/openapi.json', (c) => c.json(buildOpenApiDocument(app)));
+  // El documento sale solo de los esquemas: se arma una vez por isolate y no en cada petición.
+  let openApiDocument: ReturnType<typeof buildOpenApiDocument> | undefined;
+  app.get('/openapi.json', (c) => {
+    openApiDocument ??= buildOpenApiDocument(app);
+    return c.json(openApiDocument);
+  });
   app.get(
     '/docs',
     (c, next) =>

@@ -11,13 +11,19 @@ export type RateLimiter = {
   limit(options: { key: string }): Promise<{ success: boolean }>;
 };
 
-export type RateLimitBinding = 'RATE_LIMIT_REGISTER' | 'RATE_LIMIT_EVENTS' | 'RATE_LIMIT_API';
+export type RateLimitBinding =
+  | 'RATE_LIMIT_REGISTER'
+  | 'RATE_LIMIT_EVENTS'
+  | 'RATE_LIMIT_API'
+  | 'RATE_LIMIT_PUBLIC';
 
 export type Bindings = {
   HYPERDRIVE: { connectionString: string };
   RATE_LIMIT_REGISTER: RateLimiter;
   RATE_LIMIT_EVENTS: RateLimiter;
   RATE_LIMIT_API: RateLimiter;
+  /** Rutas públicas (`/health`; en la fase 3, `/c/:code`): por IP, 60 por minuto. */
+  RATE_LIMIT_PUBLIC: RateLimiter;
   /** Secreto de Worker: base64url de al menos 32 bytes con el que se firman los tokens. */
   TOKEN_SIGNING_KEY: string;
   ENVIRONMENT: string;

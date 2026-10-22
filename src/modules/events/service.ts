@@ -41,6 +41,9 @@ export async function ingestEvents(
   // llega ventana solo si un apply_outages anterior se perdió o lo rechazó la revisión (A-024).
   if (ingested.window.length === 0) return { accepted, duplicated, status: current };
 
+  // para ver en los logs de staging si alguna ventana crece de más (10 ms de CPU); sin el token
+  console.log('clasificación', { homeId: device.homeId, window: ingested.window.length });
+
   const detected = classify(ingested.window, { mode: ingested.mode });
   const changes = reconcileOutages(ingested.outages, detected).map(
     (change): repo.IdentifiedChange =>

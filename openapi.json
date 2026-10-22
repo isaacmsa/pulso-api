@@ -13,6 +13,20 @@
       }
     },
     "schemas": {
+      "Health": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
       "Error": {
         "type": "object",
         "properties": {
@@ -47,6 +61,383 @@
         "required": [
           "error"
         ]
+      },
+      "RegisterDeviceResponse": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "token": {
+            "type": "string",
+            "minLength": 87,
+            "maxLength": 87
+          }
+        },
+        "required": [
+          "deviceId",
+          "token"
+        ]
+      },
+      "RegisterDeviceRequest": {
+        "type": "object",
+        "properties": {
+          "appVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "example": "1.0.0"
+          }
+        },
+        "required": [
+          "appVersion"
+        ]
+      },
+      "UpdateDeviceRequest": {
+        "type": "object",
+        "properties": {
+          "pushToken": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "appVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "example": "1.0.0"
+          }
+        }
+      },
+      "CreateHomeResponse": {
+        "type": "object",
+        "properties": {
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shareCode": {
+            "type": "string",
+            "pattern": "^[2-9A-HJKMNP-Z]{8}$"
+          }
+        },
+        "required": [
+          "homeId",
+          "shareCode"
+        ]
+      },
+      "CreateHomeRequest": {
+        "type": "object",
+        "properties": {
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "default": "Casa",
+            "example": "Casa de mamá"
+          }
+        }
+      },
+      "UpdateHomeRequest": {
+        "type": "object",
+        "properties": {
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "example": "Casa de mamá"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "base",
+              "ups"
+            ]
+          }
+        }
+      },
+      "HomeStatus": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "con_luz",
+              "sin_luz",
+              "sin_noticias"
+            ]
+          },
+          "since": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "alias": {
+            "type": "string"
+          },
+          "openOutageStart": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "state",
+          "since",
+          "alias",
+          "openOutageStart"
+        ]
+      },
+      "IngestEventsResponse": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duplicated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/HomeStatus"
+          }
+        },
+        "required": [
+          "accepted",
+          "duplicated",
+          "status"
+        ]
+      },
+      "EventBatch": {
+        "type": "object",
+        "properties": {
+          "sentAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/Diagnostics"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceEvent"
+            },
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "sentAt",
+          "diagnostics",
+          "events"
+        ]
+      },
+      "Diagnostics": {
+        "type": "object",
+        "properties": {
+          "appVersion": {
+            "type": "string"
+          },
+          "manufacturer": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "sdkInt": {
+            "type": "integer"
+          },
+          "standbyBucket": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ignoringBatteryOptimizations": {
+            "type": "boolean"
+          },
+          "pendingEvents": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "appVersion",
+          "manufacturer",
+          "model",
+          "sdkInt",
+          "standbyBucket",
+          "ignoringBatteryOptimizations",
+          "pendingEvents"
+        ]
+      },
+      "DeviceEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SnapshotEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ReportEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ConfirmationEvent"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "snapshot": "#/components/schemas/SnapshotEvent",
+            "report": "#/components/schemas/ReportEvent",
+            "confirmation": "#/components/schemas/ConfirmationEvent"
+          }
+        }
+      },
+      "SnapshotEvent": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "snapshot"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "at": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "network_callback",
+              "heartbeat",
+              "charging_job",
+              "power_receiver",
+              "transition_check",
+              "app_open",
+              "boot"
+            ]
+          },
+          "plugged": {
+            "type": "boolean"
+          },
+          "onWifi": {
+            "type": "boolean"
+          },
+          "homeWifi": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "internet": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "interactive": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "batteryPct": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "at",
+          "source",
+          "plugged",
+          "onWifi",
+          "homeWifi",
+          "internet",
+          "interactive",
+          "batteryPct"
+        ]
+      },
+      "ReportEvent": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "report"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "at": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "value": {
+            "type": "string",
+            "enum": [
+              "hay_luz",
+              "fluctuando",
+              "sin_luz"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "at",
+          "value"
+        ]
+      },
+      "ConfirmationEvent": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "confirmation"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "at": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "outageStart": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "answer": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "at",
+          "outageStart",
+          "answer"
+        ]
       }
     },
     "parameters": {}
@@ -65,18 +456,26 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    }
-                  },
-                  "required": [
-                    "ok"
-                  ]
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Más de 60 peticiones por minuto desde esta IP",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -107,18 +506,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "appVersion": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 32,
-                    "example": "1.0.0"
-                  }
-                },
-                "required": [
-                  "appVersion"
-                ]
+                "$ref": "#/components/schemas/RegisterDeviceRequest"
               }
             }
           }
@@ -129,22 +517,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "deviceId": {
-                      "type": "string",
-                      "format": "uuid"
-                    },
-                    "token": {
-                      "type": "string",
-                      "minLength": 87,
-                      "maxLength": 87
-                    }
-                  },
-                  "required": [
-                    "deviceId",
-                    "token"
-                  ]
+                  "$ref": "#/components/schemas/RegisterDeviceResponse"
                 }
               }
             }
@@ -208,22 +581,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "pushToken": {
-                    "type": [
-                      "string",
-                      "null"
-                    ],
-                    "minLength": 1
-                  },
-                  "appVersion": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 32,
-                    "example": "1.0.0"
-                  }
-                }
+                "$ref": "#/components/schemas/UpdateDeviceRequest"
               }
             }
           }
@@ -357,16 +715,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "alias": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 40,
-                    "default": "Casa",
-                    "example": "Casa de mamá"
-                  }
-                }
+                "$ref": "#/components/schemas/CreateHomeRequest"
               }
             }
           }
@@ -377,21 +726,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "homeId": {
-                      "type": "string",
-                      "format": "uuid"
-                    },
-                    "shareCode": {
-                      "type": "string",
-                      "pattern": "^[2-9A-HJKMNP-Z]{8}$"
-                    }
-                  },
-                  "required": [
-                    "homeId",
-                    "shareCode"
-                  ]
+                  "$ref": "#/components/schemas/CreateHomeResponse"
                 }
               }
             }
@@ -475,22 +810,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "alias": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 40,
-                    "example": "Casa de mamá"
-                  },
-                  "mode": {
-                    "type": "string",
-                    "enum": [
-                      "base",
-                      "ups"
-                    ]
-                  }
-                }
+                "$ref": "#/components/schemas/UpdateHomeRequest"
               }
             }
           }
@@ -579,37 +899,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "state": {
-                      "type": "string",
-                      "enum": [
-                        "con_luz",
-                        "sin_luz",
-                        "sin_noticias"
-                      ]
-                    },
-                    "since": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0
-                    },
-                    "alias": {
-                      "type": "string"
-                    },
-                    "openOutageStart": {
-                      "type": [
-                        "integer",
-                        "null"
-                      ],
-                      "exclusiveMinimum": 0
-                    }
-                  },
-                  "required": [
-                    "state",
-                    "since",
-                    "alias",
-                    "openOutageStart"
-                  ]
+                  "$ref": "#/components/schemas/HomeStatus"
                 }
               }
             }
@@ -684,206 +974,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "sentAt": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0
-                  },
-                  "diagnostics": {
-                    "type": "object",
-                    "properties": {
-                      "appVersion": {
-                        "type": "string"
-                      },
-                      "manufacturer": {
-                        "type": "string"
-                      },
-                      "model": {
-                        "type": "string"
-                      },
-                      "sdkInt": {
-                        "type": "integer"
-                      },
-                      "standbyBucket": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ]
-                      },
-                      "ignoringBatteryOptimizations": {
-                        "type": "boolean"
-                      },
-                      "pendingEvents": {
-                        "type": "integer",
-                        "minimum": 0
-                      }
-                    },
-                    "required": [
-                      "appVersion",
-                      "manufacturer",
-                      "model",
-                      "sdkInt",
-                      "standbyBucket",
-                      "ignoringBatteryOptimizations",
-                      "pendingEvents"
-                    ]
-                  },
-                  "events": {
-                    "type": "array",
-                    "items": {
-                      "oneOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "enum": [
-                                "snapshot"
-                              ]
-                            },
-                            "id": {
-                              "type": "string",
-                              "format": "uuid"
-                            },
-                            "at": {
-                              "type": "integer",
-                              "exclusiveMinimum": 0
-                            },
-                            "source": {
-                              "type": "string",
-                              "enum": [
-                                "network_callback",
-                                "heartbeat",
-                                "charging_job",
-                                "power_receiver",
-                                "transition_check",
-                                "app_open",
-                                "boot"
-                              ]
-                            },
-                            "plugged": {
-                              "type": "boolean"
-                            },
-                            "onWifi": {
-                              "type": "boolean"
-                            },
-                            "homeWifi": {
-                              "type": [
-                                "boolean",
-                                "null"
-                              ]
-                            },
-                            "internet": {
-                              "type": [
-                                "boolean",
-                                "null"
-                              ]
-                            },
-                            "interactive": {
-                              "type": [
-                                "boolean",
-                                "null"
-                              ]
-                            },
-                            "batteryPct": {
-                              "type": [
-                                "integer",
-                                "null"
-                              ],
-                              "minimum": 0,
-                              "maximum": 100
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "id",
-                            "at",
-                            "source",
-                            "plugged",
-                            "onWifi",
-                            "homeWifi",
-                            "internet",
-                            "interactive",
-                            "batteryPct"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "enum": [
-                                "report"
-                              ]
-                            },
-                            "id": {
-                              "type": "string",
-                              "format": "uuid"
-                            },
-                            "at": {
-                              "type": "integer",
-                              "exclusiveMinimum": 0
-                            },
-                            "value": {
-                              "type": "string",
-                              "enum": [
-                                "hay_luz",
-                                "fluctuando",
-                                "sin_luz"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "id",
-                            "at",
-                            "value"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "enum": [
-                                "confirmation"
-                              ]
-                            },
-                            "id": {
-                              "type": "string",
-                              "format": "uuid"
-                            },
-                            "at": {
-                              "type": "integer",
-                              "exclusiveMinimum": 0
-                            },
-                            "outageStart": {
-                              "type": "integer",
-                              "exclusiveMinimum": 0
-                            },
-                            "answer": {
-                              "type": "boolean"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "id",
-                            "at",
-                            "outageStart",
-                            "answer"
-                          ]
-                        }
-                      ]
-                    },
-                    "maxItems": 200
-                  }
-                },
-                "required": [
-                  "sentAt",
-                  "diagnostics",
-                  "events"
-                ]
+                "$ref": "#/components/schemas/EventBatch"
               }
             }
           }
@@ -894,55 +985,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "accepted": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "duplicated": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "status": {
-                      "type": "object",
-                      "properties": {
-                        "state": {
-                          "type": "string",
-                          "enum": [
-                            "con_luz",
-                            "sin_luz",
-                            "sin_noticias"
-                          ]
-                        },
-                        "since": {
-                          "type": "integer",
-                          "exclusiveMinimum": 0
-                        },
-                        "alias": {
-                          "type": "string"
-                        },
-                        "openOutageStart": {
-                          "type": [
-                            "integer",
-                            "null"
-                          ],
-                          "exclusiveMinimum": 0
-                        }
-                      },
-                      "required": [
-                        "state",
-                        "since",
-                        "alias",
-                        "openOutageStart"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "accepted",
-                    "duplicated",
-                    "status"
-                  ]
+                  "$ref": "#/components/schemas/IngestEventsResponse"
                 }
               }
             }

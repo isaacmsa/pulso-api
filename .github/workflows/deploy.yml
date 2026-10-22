@@ -1,11 +1,14 @@
 name: deploy
 
-# Staging en cada push a `main` (A-017: las migraciones usan el pooler de sesión de Supabase).
+# Staging cuando `ci` pasa en un push a `main` (A-017: las migraciones usan el pooler de sesión de
+# Supabase). Despliega exactamente el commit que probó `ci` (`head_sha`), no lo último de `main`.
 # Antes de desplegar aplica las migraciones, que solo agregan, para que `wrangler rollback` siga
-# funcionando con el código anterior (regla 10).
+# funcionando con el código anterior (regla 10). A mano, `workflow_dispatch` despliega la rama elegida.
 on:
-  push:
+  workflow_run:
+    workflows: [ci]
     branches: [main]
+    types: [completed]
   workflow_dispatch:
 
 concurrency: deploy-staging
@@ -15,9 +18,16 @@ permissions:
 
 jobs:
   staging:
+    # solo un `ci` que terminó bien y que corrió por un push (no por un pull request)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Revisar que staging esté configurado
         id: gate
         run: |

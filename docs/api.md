@@ -29,7 +29,7 @@ Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Para
 | `GET /privacidad` | Pública | Política de privacidad | HTML | 2 |
 | `GET /borrar-datos` | Pública | Cómo borrar los datos desde la app o por correo (lo pide el formulario de Play) | HTML | 2 |
 | `GET /.well-known/assetlinks.json` | Pública | Abrir `/c/:code` dentro de la app (App Links) | JSON | 3 |
-| `GET /health` | Pública | Monitoreo | `{ ok: true }` | 1 |
+| `GET /health` | Pública; límite por IP | Monitoreo (1 consulta) | `{ ok: true }` | 1 |
 | `GET /openapi.json` | Pública | Contrato para generar el cliente de la app | JSON | 1 |
 | `GET /docs` | Pública solo en staging | Referencia navegable (Scalar) | HTML | 1 |
 
@@ -41,10 +41,13 @@ Errores: `{ error: { code, message } }`.
 | 401 | `invalid_token` (falta el token, está mal formado o su firma no es válida) |
 | 404 | `not_found` (por ejemplo, un código inexistente) |
 | 409 | `home_exists` (el dispositivo ya vigila una casa) |
+| 413 | `validation_failed` (el cuerpo JSON pasa de 256 KB, sin `issues`; A-025) |
 | 429 | `rate_limited` (incluye la cabecera `Retry-After: 60`) |
 | 500 | `internal_error` (mensaje genérico; el error real va al log, sin cabeceras ni cuerpo y con el token tapado) |
 
-Una ruta que no existe también responde `404 not_found`, y un cuerpo que no es JSON, `400 validation_failed` con `issues` vacío.
+Una ruta que no existe también responde `404 not_found`, y un cuerpo que no es JSON, `400 validation_failed` con `issues` vacío. Las rutas con cuerpo aceptan hasta 256 KB (un lote de 200 eventos ronda los 60 KB): con `Content-Length` se corta antes de leer, y sin él, al pasar del tope leyendo.
+
+Cada esquema de petición y respuesta es un componente con nombre en `openapi.json` (`EventBatch`, `DeviceEvent`, `SnapshotEvent`, `HomeStatus`, `RegisterDeviceRequest`, …), para que el cliente que genera la app tenga tipos estables. El test del contrato lista los nombres: renombrar uno rompe el cliente de la app.
 
 ## Contrato de eventos
 
@@ -143,7 +146,8 @@ Muchos usuarios de CANTV, Digitel y Movistar comparten IP (CGNAT), y cuando vuel
 | `POST /v1/devices` | IP | 5 por minuto (A-014) |
 | `POST /v1/events` | Dispositivo | 30 por minuto |
 | Resto con token | Dispositivo | 120 por minuto |
-| `GET /c/:code` | IP | 60 por minuto, con caché de 30 s |
+| `GET /health` | IP | 60 por minuto (`RATE_LIMIT_PUBLIC`) |
+| `GET /c/:code` | IP | 60 por minuto, con caché de 30 s (`RATE_LIMIT_PUBLIC`, fase 3) |
 
 Se usa el binding Rate Limiting de Workers, con clave por dispositivo, o por IP en las rutas públicas (A-009). El binding solo admite periodos de 10 o 60 segundos. La clave por dispositivo es el SHA-256 del token, así que el límite corre antes de tocar la base, y un token ausente, mal formado o con firma inválida responde 401 sin consultarla ni llegar al límite (A-021). El teléfono espera entre 0 y 60 segundos al azar antes de subir tras recuperar la red, para no llegar todos en el mismo segundo.
 

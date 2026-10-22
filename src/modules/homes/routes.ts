@@ -17,7 +17,11 @@ export const createHomeRoute = createRoute({
   request: {
     body: {
       required: true,
-      content: { 'application/json': { schema: z.object({ alias: alias.default('Casa') }) } },
+      content: {
+        'application/json': {
+          schema: z.object({ alias: alias.default('Casa') }).openapi('CreateHomeRequest'),
+        },
+      },
     },
   },
   responses: {
@@ -25,10 +29,12 @@ export const createHomeRoute = createRoute({
       description: 'Casa creada y asignada al dispositivo',
       content: {
         'application/json': {
-          schema: z.object({
-            homeId: z.uuid(),
-            shareCode: z.string().regex(/^[2-9A-HJKMNP-Z]{8}$/),
-          }),
+          schema: z
+            .object({
+              homeId: z.uuid(),
+              shareCode: z.string().regex(/^[2-9A-HJKMNP-Z]{8}$/),
+            })
+            .openapi('CreateHomeResponse'),
         },
       },
     },
@@ -47,7 +53,8 @@ export const patchHomeBody = z
   })
   .refine((body) => Object.values(body).some((value) => value !== undefined), {
     message: 'Manda al menos un campo.',
-  });
+  })
+  .openapi('UpdateHomeRequest');
 
 export const patchHomeRoute = createRoute({
   operationId: 'updateHome',

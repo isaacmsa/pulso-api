@@ -32,7 +32,12 @@
       "namespace_id": "1002",
       "simple": { "limit": 30, "period": 60 }
     },
-    { "name": "RATE_LIMIT_API", "namespace_id": "1003", "simple": { "limit": 120, "period": 60 } }
+    { "name": "RATE_LIMIT_API", "namespace_id": "1003", "simple": { "limit": 120, "period": 60 } },
+    {
+      "name": "RATE_LIMIT_PUBLIC",
+      "namespace_id": "1004",
+      "simple": { "limit": 60, "period": 60 }
+    }
   ],
 
   "env": {
@@ -56,6 +61,11 @@
           "name": "RATE_LIMIT_API",
           "namespace_id": "1003",
           "simple": { "limit": 120, "period": 60 }
+        },
+        {
+          "name": "RATE_LIMIT_PUBLIC",
+          "namespace_id": "1004",
+          "simple": { "limit": 60, "period": 60 }
         }
       ]
     }
