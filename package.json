@@ -17,7 +17,7 @@
     "fixtures:shift": "tsx scripts/fixtures/shift-export.ts",
     "db:up": "docker compose -f compose.dev.yaml up -d --wait",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx scripts/db-migrate.ts",
     "dev": "wrangler dev",
     "deploy:staging": "wrangler deploy --env staging",
     "openapi:export": "tsx scripts/export-openapi.ts",
