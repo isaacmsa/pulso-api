@@ -44,7 +44,7 @@
     "staging": {
       "name": "pulso-api-staging",
       // Hyperdrive con la conexión directa y la caché desactivada (A-015). Isaac pasa el `id`.
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<pendiente-isaac>" }],
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "4c73e19917d346beb6582b5d254507c6" }],
       "vars": { "ENVIRONMENT": "staging", "EXPOSE_DOCS": "true" },
       "ratelimits": [
         {
