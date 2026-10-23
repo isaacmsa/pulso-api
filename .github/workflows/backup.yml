@@ -1,0 +1,47 @@
+name: backup
+
+# Respaldo nocturno de producción (A-030): `pg_dump` de los esquemas `app` y `drizzle`, cifrado con
+# `age` a la clave pública de Isaac. La clave privada nunca entra a GitHub. El archivo cifrado queda
+# como artefacto privado, con 14 días de retención.
+# Usa el Environment `backup` (sin aprobación, solo la rama main), que tiene
+# `PRODUCTION_DATABASE_URL` y `BACKUP_AGE_RECIPIENT`; así un respaldo nocturno no espera un clic y
+# el job de deploy sigue pidiendo el suyo. Los secretos van solo en el `env` del paso que los usa.
+on:
+  schedule:
+    - cron: '0 7 * * *' # 3:00 a. m. en Caracas
+  workflow_dispatch:
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: backup
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Instalar pg_dump 17 y age
+        run: scripts/backup/install-tools.sh
+      - name: Respaldar y cifrar
+        id: dump
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+        run: |
+          file="pulso-$(date -u +%Y%m%d).dump.age"
+          scripts/backup/dump.sh "$file"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.dump.outputs.file }}
+          path: ${{ steps.dump.outputs.file }}
+          retention-days: 14
+          if-no-files-found: error

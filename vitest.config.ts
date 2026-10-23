@@ -9,13 +9,15 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
+          // el respaldo necesita PostgreSQL y `age`: corre en el proyecto de integración
+          exclude: ['scripts/backup/**'],
         },
       },
       {
         extends: true,
         test: {
           name: 'integration',
-          include: ['test/integration/**/*.test.ts'],
+          include: ['test/integration/**/*.test.ts', 'scripts/backup/**/*.test.ts'],
           fileParallelism: false,
           globalSetup: ['test/integration/setup.ts'],
           // los tests leen TEST_DATABASE_URL; setup.ts la carga de .env solo en su proceso
