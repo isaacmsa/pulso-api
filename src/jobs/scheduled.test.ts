@@ -54,7 +54,18 @@ describe('scheduled', () => {
   it('si la retención falla cierra el cliente y deja que el cron falle', async () => {
     runRetention.mockRejectedValueOnce(new Error('se cayó la base'));
 
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
     await expect(scheduled(controller(RETENTION_CRON), env, ctx)).rejects.toThrow('se cayó');
     expect(end).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledOnce();
+  });
+
+  it('si cerrar el cliente también falla, el error que sale es el de la retención', async () => {
+    runRetention.mockRejectedValueOnce(new Error('se cayó la base'));
+    end.mockRejectedValueOnce(new Error('no cierra'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(scheduled(controller(RETENTION_CRON), env, ctx)).rejects.toThrow('se cayó');
   });
 });

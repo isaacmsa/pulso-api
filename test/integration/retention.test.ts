@@ -96,6 +96,18 @@ describe('retención diaria', () => {
     expect(await count('homes')).toBe(1);
   });
 
+  it('deja un dispositivo de exactamente 180 días sin actividad y un registro de exactamente 7 días', async () => {
+    const { deviceId } = await createHome(sql, { since: NOW - 300 * DAY });
+    await sql`UPDATE app.devices SET last_seen_at = ${NOW - 180 * DAY} WHERE id = ${deviceId}`;
+    await createBareDevice({ createdAt: NOW - 7 * DAY });
+
+    const result = await runRetention(sql, NOW);
+
+    expect(result).toEqual({ events: 0, inactiveDevices: 0, homes: 0, unusedDevices: 0 });
+    expect(await count('devices')).toBe(2);
+    expect(await count('homes')).toBe(1);
+  });
+
   it('borra un dispositivo que solo seguía casas y lleva 181 días sin actividad', async () => {
     const { homeId } = await createHome(sql, { since: NOW });
     const follower = await createBareDevice({

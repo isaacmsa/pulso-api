@@ -166,6 +166,8 @@ Empezar en un snapshot `powered` reproduce el estado exacto del clasificador: ar
 
 `retention` es `runRetention` de `src/jobs/retention.ts`: **una consulta** con tres `DELETE` en CTE (todos ven la misma foto de la base), que devuelve cuántas filas borró de cada tipo y las deja en el log. Corre con el cron `0 8 * * *` (8:00 UTC) que `src/jobs/scheduled.ts` despacha, en staging y producción (A-042). Un dispositivo inactivo se borra junto con su casa, igual que `DELETE /v1/devices/me`; las cascadas disparan al terminar la consulta. Un registro sin uso de más de 180 días se cuenta una sola vez, como inactivo.
 
+Interacción con los cortes: un corte `abierto` de más de 30 días pierde los eventos de su inicio, así que la ventana de `ingest_batch` arranca a mitad del corte. La reconciliación no reescribe los cortes guardados con `started_at` anterior al `from` de la ventana (tarea 4.1, A-042); hasta entonces ese corte se reescribiría a `descartado`.
+
 Un corte `abierto` que pasa 24 horas sin eventos nuevos de su casa queda `sin_datos` y no suma horas sin luz.
 
 ## Volumen

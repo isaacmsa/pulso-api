@@ -24,8 +24,12 @@ export async function scheduled(
     try {
       const result = await runRetention(sql, controller.scheduledTime);
       console.log(JSON.stringify({ job: 'retention', ...result }));
+    } catch (error) {
+      console.error({ job: 'retention', error });
+      throw error;
     } finally {
-      await sql.end();
+      // un fallo al cerrar no debe tapar el error de la retención
+      await sql.end().catch(() => {});
     }
     return;
   }
