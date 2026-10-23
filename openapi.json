@@ -193,6 +193,136 @@
           "openOutageStart"
         ]
       },
+      "OutageHistory": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutageItem"
+            },
+            "description": "Cortes que se solapan con el rango, el más reciente primero"
+          },
+          "reports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReportItem"
+            },
+            "description": "Reportes del rango, el más reciente primero. Llegan hasta donde llega la retención (30 días)"
+          },
+          "totalMs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Suma de los cortes `cerrado` y `abierto` recortados al rango; el abierto cuenta hasta ahora"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DaySummary"
+            },
+            "description": "Todos los días del rango, también los que suman 0"
+          }
+        },
+        "required": [
+          "items",
+          "reports",
+          "totalMs",
+          "days"
+        ]
+      },
+      "OutageItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "start": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "end": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "description": "null: sigue abierto"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "abierto",
+              "cerrado",
+              "descartado",
+              "sin_datos"
+            ]
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "alta",
+              "media",
+              "manual"
+            ]
+          },
+          "confirmed": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "null: sin respuesta"
+          }
+        },
+        "required": [
+          "id",
+          "start",
+          "end",
+          "status",
+          "confidence",
+          "confirmed"
+        ]
+      },
+      "ReportItem": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "value": {
+            "type": "string",
+            "enum": [
+              "hay_luz",
+              "fluctuando",
+              "sin_luz"
+            ]
+          }
+        },
+        "required": [
+          "at",
+          "value"
+        ]
+      },
+      "DaySummary": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Día local de Caracas (UTC−4)",
+            "example": "2026-10-19"
+          },
+          "ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "date",
+          "ms"
+        ]
+      },
       "IngestEventsResponse": {
         "type": "object",
         "properties": {
@@ -900,6 +1030,117 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HomeStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El dispositivo no tiene casa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/homes/me/outages": {
+      "get": {
+        "operationId": "getOutages",
+        "tags": [
+          "casas"
+        ],
+        "summary": "Historial de cortes de mi casa en un rango, con el resumen por día",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "Inicio del rango, epoch ms (incluido)",
+              "example": 1760000000000
+            },
+            "required": true,
+            "description": "Inicio del rango, epoch ms (incluido)",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "Fin del rango, epoch ms (excluido). Debe ser mayor que `from`, con un máximo de 92 días",
+              "example": 1760604800000
+            },
+            "required": true,
+            "description": "Fin del rango, epoch ms (excluido). Debe ser mayor que `from`, con un máximo de 92 días",
+            "name": "to",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cortes, reportes y resumen por día",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutageHistory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`from` o `to` faltan, no son epoch ms, o el rango pasa de 92 días",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

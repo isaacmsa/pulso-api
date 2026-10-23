@@ -29,10 +29,11 @@ describe('contrato de /v1', () => {
     ['post', '/v1/homes', 'createHome'],
     ['patch', '/v1/homes/me', 'updateHome'],
     ['get', '/v1/homes/me/status', 'getHomeStatus'],
+    ['get', '/v1/homes/me/outages', 'getOutages'],
     ['post', '/v1/events', 'ingestEvents'],
   ];
 
-  it('openapi.json declara las rutas de la fase 1, con sus métodos y operationId', () => {
+  it('openapi.json declara las rutas de /v1, con sus métodos y operationId', () => {
     const doc = JSON.parse(readFileSync(OPENAPI_PATH, 'utf8')) as {
       paths: Record<string, Record<string, { operationId?: string }>>;
     };

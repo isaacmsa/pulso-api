@@ -7,7 +7,7 @@
 - Cómo se publica el contrato OpenAPI que consume la app
 - Cómo se limitan las peticiones y cuándo sale cada push
 
-Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Para la app el token es opaco: lo guarda tal cual lo devuelve `POST /v1/devices`. Por dentro es `<aleatorio>.<firma>` (A-021): el Worker verifica la firma HMAC antes de consultar la base, y un token sin firma válida responde `401 invalid_token` sin tocar la base ni el límite. Cada ruta se define con `createRoute` de `@hono/zod-openapi` (A-002): el mismo esquema Zod valida la petición y genera el contrato. `openapi.json` (versionado en la raíz del repo y servido en `GET /openapi.json`) es el contrato que consume la app.
+Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Para la app el token es opaco: lo guarda tal cual lo devuelve `POST /v1/devices`. Por dentro es `<aleatorio>.<firma>` (A-021): el Worker verifica la firma HMAC antes de consultar la base, y un token sin firma válida responde `401 invalid_token` sin tocar la base ni el límite. Cada ruta se define con `createRoute` de `@hono/zod-openapi` (A-002): el mismo esquema Zod valida la petición y genera el contrato. `openapi.json` (versionado en la raíz del repo) es el contrato que consume la app. `GET /openapi.json` sirve ese archivo tal cual, byte a byte (A-040): el CI verifica que coincide con las rutas, y `deploy.yml` compara lo servido por staging con el archivo después de cada despliegue. Un cliente como Scalar puede agregar `servers` en su vista, pero el contrato no lo trae.
 
 ## Endpoints
 
@@ -19,7 +19,7 @@ Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Para
 | `POST /v1/homes` | Token | "Este teléfono vigila mi casa": crea la casa del dispositivo | `201 { homeId, shareCode }` | 1 |
 | `PATCH /v1/homes/me` | Token | Alias y modo (`base` o `ups`) | `204` | 1 |
 | `GET /v1/homes/me/status` | Token | Estado actual de mi casa | `HomeStatus` | 1 |
-| `GET /v1/homes/me/outages?from&to` | Token | Historial con resumen por día | `{ items, reports, totalMs, days }` | 2 |
+| `GET /v1/homes/me/outages?from&to` | Token | Historial con resumen por día | `OutageHistory { items, reports, totalMs, days }` | 2 |
 | `POST /v1/homes/me/share-code` | Token | Regenerar el código | `{ shareCode }` | 3 |
 | `POST /v1/events` | Token | Lote de eventos (hasta 200) o latido vacío | `{ accepted, duplicated, status }` | 1 |
 | `POST /v1/follows` | Token | Seguir una casa con su código | `201 { homeId, alias, status }` | 3 |
@@ -48,6 +48,24 @@ Errores: `{ error: { code, message } }`.
 Una ruta que no existe también responde `404 not_found`, y un cuerpo que no es JSON, `400 validation_failed` con `issues` vacío. Las rutas con cuerpo aceptan hasta 256 KB (un lote de 200 eventos ronda los 60 KB): con `Content-Length` se corta antes de leer, y sin él, al pasar del tope leyendo.
 
 Cada esquema de petición y respuesta es un componente con nombre en `openapi.json` (`EventBatch`, `DeviceEvent`, `SnapshotEvent`, `HomeStatus`, `RegisterDeviceRequest`, …), para que el cliente que genera la app tenga tipos estables. El test del contrato lista los nombres: renombrar uno rompe el cliente de la app.
+
+## Historial de cortes
+
+`GET /v1/homes/me/outages?from=<epochMs>&to=<epochMs>` (A-027). `from` y `to` son obligatorios, enteros positivos en epoch ms, con `from < to` y `to − from ≤ 92 días`; el rango es `[from, to)`. Un rango inválido responde `400 validation_failed` con `issues` y **sin tocar la base** (se valida después del token y del límite, y antes de la consulta de auth). Un dispositivo sin casa responde `404 not_found`. Cuesta **2 consultas**: la auth y un CTE que trae los cortes y los reportes.
+
+```ts
+OutageHistory = {
+  items: OutageItem[],      // cortes que se solapan con [from, to): started_at < to y (ended_at es null o > from), el más reciente primero
+  reports: ReportItem[],    // reportes con at en [from, to), el más reciente primero; solo hay hasta donde llega la retención de events (30 días)
+  totalMs: number,          // suma de los cortes cerrado y abierto (este hasta ahora) recortados al rango; descartado y sin_datos no suman
+  days: DaySummary[],       // todos los días del rango en hora de Caracas (UTC−4), también los que suman 0
+}
+OutageItem  = { id, start, end /* null si sigue abierto */, status, confidence, confirmed /* null sin respuesta */ }
+ReportItem  = { at, value: 'hay_luz' | 'fluctuando' | 'sin_luz' }
+DaySummary  = { date: 'AAAA-MM-DD', ms }
+```
+
+`OutageItem.status` declara desde ya los cuatro valores (`abierto`, `cerrado`, `descartado`, `sin_datos`) porque D-023 prohíbe agregar uno después; `confidence` es `alta`, `media` o `manual`. `items` incluye también los cortes `descartado`.
 
 ## Contrato de eventos
 

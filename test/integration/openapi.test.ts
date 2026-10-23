@@ -21,16 +21,16 @@ function envWith(overrides: Partial<Bindings> = {}): Bindings {
 }
 
 describe('documentación del contrato', () => {
-  it('GET /openapi.json sirve el mismo documento que openapi.json, sin base ni token', async () => {
+  it('GET /openapi.json sirve byte a byte el openapi.json del repo, sin servers ni base ni token', async () => {
     let queries = 0;
     const app = createApp({ onQuery: () => queries++ });
     const res = await app.request('/openapi.json', {}, envWith());
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
-    const committed = JSON.parse(
-      readFileSync(join(import.meta.dirname, '../../openapi.json'), 'utf8'),
-    );
-    expect(await res.json()).toEqual(committed);
+    const file = readFileSync(join(import.meta.dirname, '../../openapi.json'), 'utf8');
+    const served = await res.text();
+    expect(served).toBe(file);
+    expect(JSON.parse(served)).not.toHaveProperty('servers'); // lo agregaría un cliente, no el contrato
     expect(queries).toBe(0);
   });
 
@@ -43,6 +43,7 @@ describe('documentación del contrato', () => {
         'ConfirmationEvent',
         'CreateHomeRequest',
         'CreateHomeResponse',
+        'DaySummary',
         'DeviceEvent',
         'Diagnostics',
         'Error',
@@ -50,8 +51,11 @@ describe('documentación del contrato', () => {
         'Health',
         'HomeStatus',
         'IngestEventsResponse',
+        'OutageHistory',
+        'OutageItem',
         'RegisterDeviceRequest',
         'RegisterDeviceResponse',
+        'ReportItem',
         'ReportEvent',
         'SnapshotEvent',
         'UpdateDeviceRequest',
@@ -60,13 +64,13 @@ describe('documentación del contrato', () => {
     );
   });
 
-  it('GET /openapi.json arma el documento una sola vez por isolate', async () => {
+  it('GET /openapi.json no arma el documento en el Worker: sirve el archivo', async () => {
     const app = createApp();
     const build = vi.spyOn(app, 'getOpenAPI31Document');
     for (let i = 0; i < 3; i++) {
       expect((await app.request('/openapi.json', {}, envWith())).status).toBe(200);
     }
-    expect(build).toHaveBeenCalledTimes(1);
+    expect(build).not.toHaveBeenCalled();
   });
 
   it('GET /docs responde 404 con la forma de error si EXPOSE_DOCS no es true', async () => {

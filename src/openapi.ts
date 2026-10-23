@@ -10,3 +10,11 @@ export const OPENAPI_CONFIG = {
 export function buildOpenApiDocument(app: OpenAPIHono<AppEnv>) {
   return app.getOpenAPI31Document(OPENAPI_CONFIG);
 }
+
+/**
+ * Los bytes de `openapi.json`: el script de exportación los escribe y `GET /openapi.json` los
+ * sirve, para que el contrato servido sea idéntico, byte a byte, al del repo.
+ */
+export function serializeOpenApi(document: unknown): string {
+  return `${JSON.stringify(document, null, 2)}\n`;
+}
