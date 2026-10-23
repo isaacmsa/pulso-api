@@ -1,7 +1,8 @@
 // Imprime `ready=true` o `ready=false` según el entorno de `wrangler.jsonc` tenga ya el id de su
 // Hyperdrive (y no el marcador `<pendiente-isaac>`). Lo usan `deploy.yml` y
 // `deploy-production.yml` como puerta antes de migrar y desplegar; el resultado va a
-// `$GITHUB_OUTPUT` en el workflow.
+// `$GITHUB_OUTPUT` en el workflow. Corre antes de `setup-node`, con el Node del runner: por eso usa
+// `fileURLToPath(import.meta.url)` y no `import.meta.filename` (Node 20.11+).
 //
 // Uso: node scripts/ci/hyperdrive-ready.mjs <entorno> [ruta-del-wrangler.jsonc]
 //
@@ -9,6 +10,7 @@
 // comentarios (`//` y `/* */`) y las comas finales, respetando el contenido de las cadenas (la
 // `localConnectionString` lleva `postgres://`).
 import { readFileSync, realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const PENDING = '<pendiente-isaac>';
 
@@ -88,7 +90,8 @@ export function isReady(text, env) {
 function isEntryPoint() {
   try {
     return (
-      !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(import.meta.filename)
+      !!process.argv[1] &&
+      realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
     );
   } catch {
     return false;

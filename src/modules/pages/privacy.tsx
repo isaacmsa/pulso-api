@@ -10,7 +10,10 @@ const STORED: Array<[data: string, retention: string]> = [
     '30 días en el servidor y 14 días en el teléfono.',
   ],
   ['Los reportes y confirmaciones que haces ("sí se fue la luz").', '30 días.'],
-  ['Los cortes de luz detectados (cuándo empezaron y terminaron).', 'Mientras exista la casa.'],
+  [
+    'Los cortes de luz detectados: cuándo empezó y cuándo terminó cada uno, y si confirmaste que fue un corte.',
+    'Mientras exista la casa.',
+  ],
   [
     'El nombre que le pongas a la casa y a las casas que sigues. Puede ser un nombre que tú escribes, así que no pongas datos que no quieras guardar.',
     'Mientras existan la casa o el seguimiento.',

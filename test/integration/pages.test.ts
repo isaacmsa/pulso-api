@@ -76,6 +76,10 @@ describe('páginas públicas', () => {
     expect(retentionOf(html, 'si hay corriente')).toMatch(/30 días en el servidor.*14 días/);
     expect(retentionOf(html, 'reportes y confirmaciones')).toBe('30 días.');
     expect(retentionOf(html, 'cortes de luz detectados')).toBe('Mientras exista la casa.');
+    // la respuesta guardada en el corte dura lo que la casa, no 30 días
+    expect(html).toMatch(
+      /cuándo empezó y cuándo terminó cada uno, y si confirmaste que fue un corte/,
+    );
   });
 
   it('privacidad explica el código de la casa y cómo regenerarlo', async () => {

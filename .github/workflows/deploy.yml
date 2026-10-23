@@ -32,8 +32,13 @@ jobs:
         id: gate
         run: |
           # el id de Hyperdrive de staging, y solo ese: un comentario con el marcador no cuenta
-          ready=$(node scripts/ci/hyperdrive-ready.mjs staging)
-          if [ "$ready" != "ready=true" ]; then
+          # falla cerrado: sin una respuesta exacta no se sabe si staging está listo
+          ready=$(node scripts/ci/hyperdrive-ready.mjs staging) || ready=""
+          if [ "$ready" != "ready=true" ] && [ "$ready" != "ready=false" ]; then
+            echo "::error title=Puerta ilegible::hyperdrive-ready.mjs no devolvió ready=true ni ready=false (devolvió: '$ready'). Se detiene en vez de omitir el deploy en silencio."
+            exit 1
+          fi
+          if [ "$ready" = "ready=false" ]; then
             msg="wrangler.jsonc aún tiene pendiente el id de Hyperdrive de staging (env.staging.hyperdrive). No se migra ni se despliega hasta que Isaac lo ponga."
             if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
               echo "::warning title=Deploy omitido::$msg"
@@ -94,3 +99,23 @@ jobs:
           echo "::error title=Contrato distinto::$url no es igual al openapi.json del repo. Compara a mano: curl -fsS $url | diff - openapi.json"
           diff served-openapi.json openapi.json | head -40 || true
           exit 1
+
+      - name: Comprobar que TOKEN_SIGNING_KEY está cargado
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          # un token bien formado pero inválido (43 + "." + 43 caracteres base64url) tiene que dar
+          # 401 sin tocar la base; un 500 es que el Worker no tiene TOKEN_SIGNING_KEY.
+          base="https://pulso-api-staging.isaac-mendozasa.workers.dev"
+          a43=$(printf 'A%.0s' $(seq 1 43))
+          code=000
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $a43.$a43" "$base/v1/homes/me/status" || echo 000)
+            if [ "$code" = "401" ] || [ "$code" = "500" ]; then break; fi
+            if [ "$attempt" -lt 5 ]; then sleep 5; fi
+          done
+          if [ "$code" != "401" ]; then
+            echo "::error title=TOKEN_SIGNING_KEY sin cargar o Worker caído::$base/v1/homes/me/status con un token inválido respondió $code en vez de 401. Un 500 indica que falta el secreto: pnpm exec wrangler secret put TOKEN_SIGNING_KEY --env staging"
+            exit 1
+          fi
+          echo "El Worker rechaza un token inválido con 401: TOKEN_SIGNING_KEY está cargado."
