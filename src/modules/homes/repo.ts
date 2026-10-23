@@ -36,3 +36,24 @@ export async function updateHome(
   });
   return rows.length === 1;
 }
+
+/**
+ * Cambia el `share_code` de la casa y borra todos sus `follows`, en **una sola sentencia**: el
+ * `DELETE` solo corre si el `UPDATE` cambió la casa, y si el código choca (`23505`) la sentencia
+ * entera se deshace, así que nadie queda sin seguir por un intento fallido (A-041). Devuelve
+ * `false` si la casa ya no existe.
+ */
+export async function replaceShareCode(
+  sql: postgres.Sql,
+  homeId: string,
+  shareCode: string,
+): Promise<boolean> {
+  const rows = await sql`
+    WITH changed AS (
+      UPDATE app.homes SET share_code = ${shareCode} WHERE id = ${homeId} RETURNING id
+    ), removed AS (
+      DELETE FROM app.follows WHERE home_id = ${homeId} AND EXISTS (SELECT 1 FROM changed)
+    )
+    SELECT id FROM changed`;
+  return rows.length === 1;
+}

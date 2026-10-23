@@ -45,6 +45,25 @@ export async function createHomeForDevice(
   }
 }
 
+/**
+ * Cambia el código de la casa y quita a todos sus seguidores (A-041). Reintenta si el código
+ * choca, hasta 3 veces en total; después lanza el error. Devuelve `null` si la casa ya no existe.
+ */
+export async function regenerateShareCode(
+  sql: postgres.Sql,
+  homeId: string,
+  newShareCode: () => string = generateShareCode,
+): Promise<string | null> {
+  for (let attempt = 1; ; attempt++) {
+    const shareCode = newShareCode();
+    try {
+      return (await repo.replaceShareCode(sql, homeId, shareCode)) ? shareCode : null;
+    } catch (err) {
+      if (!isShareCodeCollision(err) || attempt >= SHARE_CODE_ATTEMPTS) throw err;
+    }
+  }
+}
+
 /** `false` si la casa ya no existe. */
 export function updateHome(
   db: Db,

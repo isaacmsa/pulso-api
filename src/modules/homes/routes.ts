@@ -1,10 +1,8 @@
 import { createRoute, z } from '@hono/zod-openapi';
-import { homeStatusSchema } from '../../domain/homes/schema';
+import { aliasSchema as alias, homeStatusSchema } from '../../domain/homes/schema';
 import { deviceAuth, SECURITY } from '../../middleware/device-auth';
 import { internalError, jsonError, rateLimitedError } from '../../middleware/errors';
 import { requireJsonBody } from '../../middleware/json-body';
-
-const alias = z.string().trim().min(1).max(40).openapi({ example: 'Casa de mamá' });
 
 export const createHomeRoute = createRoute({
   operationId: 'createHome',
@@ -89,6 +87,34 @@ export const homeStatusRoute = createRoute({
     200: {
       description: 'Estado de la casa',
       content: { 'application/json': { schema: homeStatusSchema } },
+    },
+    401: jsonError('Token inválido'),
+    404: jsonError('El dispositivo no tiene casa'),
+    429: rateLimitedError('Demasiadas peticiones'),
+    500: internalError,
+  },
+});
+
+export const regenerateShareCodeRoute = createRoute({
+  operationId: 'regenerateShareCode',
+  method: 'post',
+  path: '/v1/homes/me/share-code',
+  tags: ['casas'],
+  summary: 'Regenerar el código de mi casa: el viejo deja de servir y se quita a los seguidores',
+  description:
+    'El código viejo deja de servir y se borran todos los seguidores de la casa (A-041): tienen que volver a seguirla con el código nuevo. No hay aviso a quien se quita.',
+  security: SECURITY,
+  middleware: deviceAuth,
+  responses: {
+    200: {
+      description: 'El código nuevo',
+      content: {
+        'application/json': {
+          schema: z
+            .object({ shareCode: z.string().regex(/^[2-9A-HJKMNP-Z]{8}$/) })
+            .openapi('ShareCode'),
+        },
+      },
     },
     401: jsonError('Token inválido'),
     404: jsonError('El dispositivo no tiene casa'),

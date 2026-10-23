@@ -193,6 +193,79 @@
           "openOutageStart"
         ]
       },
+      "ShareCode": {
+        "type": "object",
+        "properties": {
+          "shareCode": {
+            "type": "string",
+            "pattern": "^[2-9A-HJKMNP-Z]{8}$"
+          }
+        },
+        "required": [
+          "shareCode"
+        ]
+      },
+      "FollowItem": {
+        "type": "object",
+        "properties": {
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "example": "Casa de mamá",
+            "description": "El alias que le puse yo, no el del dueño"
+          },
+          "status": {
+            "$ref": "#/components/schemas/HomeStatus"
+          }
+        },
+        "required": [
+          "homeId",
+          "alias",
+          "status"
+        ]
+      },
+      "FollowRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[2-9A-HJKMNP-Z]{8}$",
+            "description": "Código de la casa, 8 caracteres. Las minúsculas se aceptan",
+            "example": "K7M2QX9P"
+          },
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "example": "Casa de mamá",
+            "description": "Cómo llamo yo a esa casa"
+          }
+        },
+        "required": [
+          "code",
+          "alias"
+        ]
+      },
+      "FollowList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FollowItem"
+            },
+            "description": "Ordenadas por alias"
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
       "OutageHistory": {
         "type": "object",
         "properties": {
@@ -1046,6 +1119,321 @@
           },
           "404": {
             "description": "El dispositivo no tiene casa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/homes/me/share-code": {
+      "post": {
+        "operationId": "regenerateShareCode",
+        "tags": [
+          "casas"
+        ],
+        "summary": "Regenerar el código de mi casa: el viejo deja de servir y se quita a los seguidores",
+        "description": "El código viejo deja de servir y se borran todos los seguidores de la casa (A-041): tienen que volver a seguirla con el código nuevo. No hay aviso a quien se quita.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "El código nuevo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareCode"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El dispositivo no tiene casa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/follows": {
+      "post": {
+        "operationId": "followHome",
+        "tags": [
+          "seguidores"
+        ],
+        "summary": "Seguir una casa con su código",
+        "description": "Es idempotente (A-036): seguir otra vez la misma casa actualiza el alias y también responde 201. Se puede seguir la propia casa. Tope de 20 casas por dispositivo.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Siguiendo la casa, con su estado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cuerpo inválido, o el dispositivo ya sigue 20 casas (`validation_failed`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe una casa con ese código",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listFollows",
+        "tags": [
+          "seguidores"
+        ],
+        "summary": "Las casas que sigo, con su estado",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Casas que sigo, ordenadas por alias",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiadas peticiones",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que hay que esperar antes de reintentar",
+                "schema": {
+                  "type": "string",
+                  "example": "60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: algo falló de nuestro lado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/follows/{homeId}": {
+      "delete": {
+        "operationId": "unfollowHome",
+        "tags": [
+          "seguidores"
+        ],
+        "summary": "Dejar de seguir una casa",
+        "description": "Responde 204 también si el dispositivo no la seguía.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "homeId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Ya no la sigo"
+          },
+          "400": {
+            "description": "`homeId` no es un uuid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token inválido",
             "content": {
               "application/json": {
                 "schema": {

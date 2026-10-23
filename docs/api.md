@@ -67,6 +67,24 @@ DaySummary  = { date: 'AAAA-MM-DD', ms }
 
 `OutageItem.status` declara desde ya los cuatro valores (`abierto`, `cerrado`, `descartado`, `sin_datos`) porque D-023 prohíbe agregar uno después; `confidence` es `alta`, `media` o `manual`. `items` incluye también los cortes `descartado`.
 
+## Seguir una casa
+
+La familia sigue una casa con su código de 8 caracteres (alfabeto de 31, sin `0`, `1`, `I`, `L` ni `O`). Las tres rutas usan el límite general de 120 por minuto por dispositivo.
+
+| Ruta | Cuerpo | Respuesta | Consultas |
+| --- | --- | --- | --- |
+| `POST /v1/follows` | `FollowRequest { code, alias }` | `201 FollowItem { homeId, alias, status: HomeStatus }` | 2: la auth y un CTE que busca la casa, cuenta, hace el upsert y lee el estado y el corte abierto |
+| `GET /v1/follows` | | `200 FollowList { items: FollowItem[] }`, ordenada por alias | 2 |
+| `DELETE /v1/follows/:homeId` | | `204`, también si no la seguía | 2: la auth y el `DELETE` |
+
+- `code` se pasa a mayúsculas **antes** de validarlo: `k7m2qx9p` se acepta. Un código mal formado (largo distinto de 8 o letras fuera del alfabeto) responde `400 validation_failed`. `alias` son 1 a 40 caracteres, recortados.
+- Es idempotente (A-036): seguir otra vez la misma casa actualiza el alias y también responde `201`. Seguir la propia casa se permite.
+- Un código que no existe responde `404 not_found`.
+- Un dispositivo sigue como máximo **20 casas** (A-036): la 21 responde `400 validation_failed` con el mensaje "Ya sigues 20 casas." (los códigos de error son un enum de respuesta y no se agregan, D-023). Volver a seguir una de las 20 sí se permite. Con dos peticiones a la vez el tope puede pasarse por una: es un tope de cortesía, no de seguridad.
+- `FollowItem.alias` es el que le puse yo a la casa; `status.alias` es el del dueño. `status` es el mismo `HomeStatus` de `GET /v1/homes/me/status`.
+- `DELETE` solo borra el follow del dispositivo que llama; `homeId` que no es uuid responde `400`.
+- `POST /v1/homes/me/share-code` cambia el código y borra todos los `follows` de la casa en la misma sentencia (A-041): el código viejo deja de servir, y quien seguía la casa tiene que volver a seguirla con el código nuevo. Cuesta 2 consultas (la auth y esa sentencia); si el código nuevo choca (`23505`), reintenta hasta 3 veces en total, una consulta más por intento, y un intento fallido no quita a nadie. Un dispositivo sin casa responde `404 not_found`.
+
 ## Contrato de eventos
 
 ```ts

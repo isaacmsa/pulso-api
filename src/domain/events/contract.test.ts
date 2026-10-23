@@ -30,7 +30,11 @@ describe('contrato de /v1', () => {
     ['patch', '/v1/homes/me', 'updateHome'],
     ['get', '/v1/homes/me/status', 'getHomeStatus'],
     ['get', '/v1/homes/me/outages', 'getOutages'],
+    ['post', '/v1/homes/me/share-code', 'regenerateShareCode'],
     ['post', '/v1/events', 'ingestEvents'],
+    ['post', '/v1/follows', 'followHome'],
+    ['get', '/v1/follows', 'listFollows'],
+    ['delete', '/v1/follows/{homeId}', 'unfollowHome'],
   ];
 
   it('openapi.json declara las rutas de /v1, con sus métodos y operationId', () => {

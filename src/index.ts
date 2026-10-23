@@ -7,6 +7,7 @@ import { withDb } from './middleware/db';
 import { apiError, errorHandler, notFoundHandler, validationHook } from './middleware/errors';
 import { devices } from './modules/devices';
 import { events } from './modules/events';
+import { follows } from './modules/follows';
 import { health } from './modules/health';
 import { homes } from './modules/homes';
 import { outages } from './modules/outages';
@@ -38,6 +39,7 @@ export function createApp(options: CreateAppOptions = {}): OpenAPIHono<AppEnv> {
   app.route('/', health);
   app.route('/', devices);
   app.route('/', homes);
+  app.route('/', follows);
   app.route('/', outages);
   app.route('/', events);
   app.route('/', pages);

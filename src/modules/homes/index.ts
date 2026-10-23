@@ -1,7 +1,12 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppEnv } from '../../env';
 import { apiError, validationHook } from '../../middleware/errors';
-import { createHomeRoute, homeStatusRoute, patchHomeRoute } from './routes';
+import {
+  createHomeRoute,
+  homeStatusRoute,
+  patchHomeRoute,
+  regenerateShareCodeRoute,
+} from './routes';
 import * as service from './service';
 
 const NO_HOME = 'Este dispositivo no vigila ninguna casa.';
@@ -28,4 +33,11 @@ export const homes = new OpenAPIHono<AppEnv>({ defaultHook: validationHook })
     const status = service.homeStatus(c.var.device);
     if (!status) return apiError(c, 404, 'not_found', NO_HOME);
     return c.json(status, 200);
+  })
+  .openapi(regenerateShareCodeRoute, async (c) => {
+    const { homeId } = c.var.device;
+    if (!homeId) return apiError(c, 404, 'not_found', NO_HOME);
+    const shareCode = await service.regenerateShareCode(c.var.sql, homeId);
+    if (!shareCode) return apiError(c, 404, 'not_found', NO_HOME);
+    return c.json({ shareCode }, 200);
   });
