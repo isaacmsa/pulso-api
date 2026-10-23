@@ -33,7 +33,7 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 ## Fase 2 · Historial, privacidad y producción (S4, ~2,5 h)
 
 - [x] `GET /v1/homes/me/outages` con `summarizeOutages` (1 h)
-- [ ] `GET /privacidad` y `GET /borrar-datos` con `hono/jsx`, con el contenido de `pulso-app/docs/security-privacy.md` (0,5 h)
+- [x] `GET /privacidad` y `GET /borrar-datos` con `hono/jsx`, con el contenido de `pulso-app/docs/security-privacy.md` (0,5 h)
 - [ ] Proyecto de Supabase `pulso` con el rol `pulso_api` y su Hyperdrive (A-018). Entorno `production` y despliegue manual con aprobación; workflow nocturno de respaldo con `pg_dump` cifrado (1 h)
 
 **Lista cuando:** la URL de `/privacidad` de producción carga y está puesta en Play Console, y existe el primer respaldo.

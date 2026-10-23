@@ -9,6 +9,7 @@ import { events } from './modules/events';
 import { health } from './modules/health';
 import { homes } from './modules/homes';
 import { outages } from './modules/outages';
+import { pages } from './modules/pages';
 import { serializeOpenApi } from './openapi';
 
 export type CreateAppOptions = {
@@ -38,6 +39,7 @@ export function createApp(options: CreateAppOptions = {}): OpenAPIHono<AppEnv> {
   app.route('/', homes);
   app.route('/', outages);
   app.route('/', events);
+  app.route('/', pages);
   // Ninguna de las dos toca la base. `/docs` solo se expone donde EXPOSE_DOCS es 'true' (staging).
   // `/openapi.json` sirve el `openapi.json` del repo tal cual (sin construirlo en el Worker, que
   // gastaría CPU en cada isolate nuevo): `pnpm openapi:check` y el CI garantizan que coincide con
