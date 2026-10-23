@@ -23,19 +23,21 @@ permissions:
 
 jobs:
   production:
+    # defensa en profundidad: el workflow de un commit que no sea de main ni siquiera arranca
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Revisar que el commit sea de main y que ci haya pasado
         env:
           REF: ${{ inputs.ref }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           sha=$(git rev-parse HEAD)
           echo "Commit a desplegar: $sha (ref: $REF)"
@@ -46,7 +48,8 @@ jobs:
           fi
           passed=$(gh run list --workflow ci.yml --commit "$sha" --json conclusion \
             --jq '[.[] | select(.conclusion == "success")] | length')
-          if [ "$passed" -lt 1 ]; then
+          # falla cerrado: si `gh` no devolvió nada, no hay prueba de que ci pasó
+          if ! [ "${passed:-0}" -ge 1 ]; then
             echo "::error title=ci sin pasar::ci no terminó en verde en $sha. Espera a que pase (o corrígelo) y vuelve a lanzar."
             exit 1
           fi
@@ -69,7 +72,7 @@ jobs:
             if [ -z "${!name}" ]; then missing="$missing $name"; fi
           done
           if [ -n "$missing" ]; then
-            echo "::error title=Faltan secretos::Cargar en Settings > Secrets and variables > Actions (o en el Environment production):$missing"
+            echo "::error title=Faltan secretos::Sin valor:$missing. PRODUCTION_DATABASE_URL vive solo en los Environments production y backup (Settings > Environments), nunca como secreto del repositorio. Los de Cloudflare van en el Environment production o en los secretos del repositorio."
             exit 1
           fi
       - uses: pnpm/action-setup@v6

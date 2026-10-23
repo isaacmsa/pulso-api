@@ -294,7 +294,7 @@ describe('GET /v1/homes/me/outages', () => {
     const { token } = await register(true);
     for (const path of [
       range(8_700_000_000_000_000, 8_700_000_000_001_000), // `new Date` lanzaría Invalid time value
-      range(FROM, 4_102_444_800_001), // un ms después del tope
+      range(4_102_444_800_001 - DAY, 4_102_444_800_001), // un ms después del tope, con el rango de 1 día: solo falla el tope
     ]) {
       const res = await call(path, token);
       expect(res.status, path).toBe(400);

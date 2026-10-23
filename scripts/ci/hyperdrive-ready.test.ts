@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -73,5 +73,20 @@ describe('hyperdrive-ready', () => {
 
   it('un archivo ilegible falla en vez de dar ready=false', () => {
     expect(() => run('staging', '{ "env": ')).toThrow();
+  });
+
+  it('imprime el resultado aunque se lance por un enlace simbólico', () => {
+    const link = join(dir, 'enlace-hyperdrive-ready.mjs');
+    symlinkSync(script, link);
+    const file = join(dir, 'wrangler-enlace.jsonc');
+    writeFileSync(file, config('aaaa1111', '<pendiente-isaac>'));
+    const run = (env: string) =>
+      execFileSync(process.execPath, [link, env, file], { encoding: 'utf8' }).trim();
+    expect(run('staging')).toBe('ready=true');
+    expect(run('production')).toBe('ready=false');
+  });
+
+  it('un archivo sin la sección env falla en vez de dar ready=false', () => {
+    expect(() => run('production', '{ "name": "pulso-api" }')).toThrow();
   });
 });

@@ -8,7 +8,7 @@
 // No usa dependencias: `wrangler.jsonc` es JSONC, así que antes de `JSON.parse` se quitan los
 // comentarios (`//` y `/* */`) y las comas finales, respetando el contenido de las cadenas (la
 // `localConnectionString` lleva `postgres://`).
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 
 const PENDING = '<pendiente-isaac>';
 
@@ -69,7 +69,11 @@ function removeTrailingCommas(text) {
  */
 export function hyperdriveId(text, env) {
   const config = JSON.parse(jsoncToJson(text));
-  const id = config.env?.[env]?.hyperdrive?.[0]?.id;
+  // sin `env` no es el wrangler.jsonc de Pulso (archivo equivocado): falla en vez de dar ready=false
+  if (typeof config?.env !== 'object' || config.env === null) {
+    throw new Error('El archivo no tiene la sección "env": ¿es el wrangler.jsonc de Pulso?');
+  }
+  const id = config.env[env]?.hyperdrive?.[0]?.id;
   return typeof id === 'string' ? id : '';
 }
 
@@ -78,7 +82,11 @@ export function isReady(text, env) {
   return id !== '' && id !== PENDING;
 }
 
-const isMain = process.argv[1] && import.meta.filename === process.argv[1];
+// `process.argv[1]` puede ser un enlace simbólico o una ruta relativa al archivo: se compara la ruta
+// real, no el texto. Si la comparación fallara, el script saldría sin imprimir nada y `deploy.yml`
+// leería una salida vacía.
+const isMain =
+  process.argv[1] && realpathSync(process.argv[1]) === realpathSync(import.meta.filename);
 if (isMain) {
   const [env, file = 'wrangler.jsonc'] = process.argv.slice(2);
   if (!env) {
