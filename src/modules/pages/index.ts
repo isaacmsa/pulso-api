@@ -8,7 +8,8 @@ import { Privacy } from './privacy';
 const headers = {
   'content-type': 'text/html; charset=utf-8',
   'cache-control': 'public, max-age=3600',
-  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+  'content-security-policy':
+    "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
   'x-content-type-options': 'nosniff',
 };
 

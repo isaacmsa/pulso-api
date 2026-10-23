@@ -7,8 +7,8 @@ export function DeleteData() {
       <p class="muted">Última actualización: {LAST_UPDATE}</p>
 
       <p>
-        Puedes borrar todo lo que Pulso guarda de ti cuando quieras. Es definitivo: no se puede
-        deshacer.
+        Puedes borrar todo lo que Pulso guarda en su servidor cuando quieras. Es definitivo: no se
+        puede deshacer.
       </p>
 
       <h2>Desde la app</h2>
@@ -23,7 +23,8 @@ export function DeleteData() {
         Escribe a <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> y pide que borren tus
         datos. Incluye el código de la casa (los 8 caracteres que ves en la app o que te
         compartieron). Sin ese código no podemos saber cuáles datos son los tuyos, porque Pulso no
-        guarda tu nombre ni tu correo. Respondemos en un plazo de 7 días.
+        guarda tu nombre ni tu correo. Ten en cuenta que quien tenga el código de la casa también
+        puede pedir el borrado. Te avisamos por correo cuando esté hecho.
       </p>
 
       <h2>Qué se borra</h2>
@@ -37,7 +38,8 @@ export function DeleteData() {
       </ul>
       <p>
         En el teléfono, la app también borra su historial local y cancela sus tareas. Las copias de
-        respaldo cifradas desaparecen solas a los 14 días.
+        respaldo cifradas desaparecen solas a los 14 días. Los reportes de errores que recibe Sentry
+        no llevan datos personales a propósito y se guardan según el plan de Sentry.
       </p>
 
       <nav>

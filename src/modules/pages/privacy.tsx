@@ -2,7 +2,7 @@ import { CONTACT_EMAIL, LAST_UPDATE, Layout } from './layout';
 
 const STORED: Array<[data: string, retention: string]> = [
   [
-    'Un identificador anónimo del teléfono y una huella de su clave de acceso (no la clave).',
+    'Un identificador anónimo del teléfono y un código de verificación de su clave de acceso (no la clave).',
     'Hasta que borres tus datos, o 180 días sin actividad. Si un registro nunca manda nada, se borra a los 7 días.',
   ],
   [
@@ -12,7 +12,7 @@ const STORED: Array<[data: string, retention: string]> = [
   ['Los reportes y confirmaciones que haces ("sí se fue la luz").', '30 días.'],
   ['Los cortes de luz detectados (cuándo empezaron y terminaron).', 'Mientras exista la casa.'],
   [
-    'El nombre que le pones a tu casa y a las casas que sigues.',
+    'El nombre que le pongas a la casa y a las casas que sigues. Puede ser un nombre que tú escribes, así que no pongas datos que no quieras guardar.',
     'Mientras existan la casa o el seguimiento.',
   ],
   [
@@ -23,7 +23,10 @@ const STORED: Array<[data: string, retention: string]> = [
     'El código del teléfono para mandarle avisos (token de notificaciones).',
     'Mientras exista el dispositivo.',
   ],
-  ['Los errores de la app y de la API, sin datos personales.', 'Según el plan gratuito de Sentry.'],
+  [
+    'Los errores de la app y de la API, sin enviar datos personales a propósito.',
+    'Según el plan gratuito de Sentry.',
+  ],
 ];
 
 const PROCESSORS: Array<[name: string, role: string]> = [
@@ -47,7 +50,7 @@ export function Privacy() {
       </p>
 
       <h2>Qué se guarda y por cuánto tiempo</h2>
-      <div class="table-wrap">
+      <section class="table-wrap" tabindex={0} aria-label="Datos que se guardan y su retención">
         <table>
           <thead>
             <tr>
@@ -64,7 +67,7 @@ export function Privacy() {
             ))}
           </tbody>
         </table>
-      </div>
+      </section>
       <p>
         Todo esto se usa para una sola cosa: detectar los cortes de luz de tu casa, llevar su
         historial y avisar a quien la sigue.
@@ -72,9 +75,9 @@ export function Privacy() {
 
       <h2>Lo que no se recoge</h2>
       <p>
-        Pulso no recoge tu ubicación ni el nombre de la red (SSID o BSSID) a la que te conectas.
-        Tampoco guarda tu nombre, tu número de teléfono, tu correo ni tus contactos. La huella de la
-        red de tu casa se calcula en el teléfono y se queda ahí.
+        Pulso no recoge tu ubicación ni el nombre de la red Wi-Fi a la que te conectas ni el
+        identificador del router. Tampoco guarda tu nombre, tu número de teléfono, tu correo ni tus
+        contactos. La huella de la red de tu casa se calcula en el teléfono y se queda ahí.
       </p>
 
       <h2>Con quién se trabaja</h2>
@@ -87,8 +90,8 @@ export function Privacy() {
         ))}
       </ul>
       <p>
-        Los datos no se venden ni se comparten con nadie para publicidad. Los proveedores solo
-        procesan la información para que Pulso funcione. Todo viaja cifrado (HTTPS).
+        No se venden ni se comparten con terceros; los proveedores solo los procesan para que Pulso
+        funcione. Todo viaja cifrado (HTTPS).
       </p>
 
       <h2>Borrar todo desde la app</h2>
@@ -101,9 +104,11 @@ export function Privacy() {
 
       <h2>El código de la casa</h2>
       <p>
-        Cada casa tiene un código de 8 caracteres. Quien lo tenga puede ver si en esa casa hay luz,
-        pero nada más. Lo compartes tú, con quien quieras. Si se lo diste a alguien que ya no debe
-        verlo, puedes regenerarlo en Ajustes: el código viejo deja de servir.
+        Cada casa tiene un código de 8 caracteres. Quien lo tenga puede ver si hay luz en esa casa,
+        cuánto lleva el corte y el nombre de la casa, y recibir los avisos de esa casa. Lo compartes
+        tú, con quien quieras. Si quieres que deje de circular, regenéralo en Ajustes: el código y
+        el enlace viejos dejan de servir y nadie más podrá seguir la casa con ellos. Quienes ya la
+        siguen la siguen hasta que dejen de seguirla.
       </p>
 
       <h2>Contacto</h2>
