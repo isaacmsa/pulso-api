@@ -83,7 +83,12 @@ describe('páginas públicas', () => {
     expect(html).toMatch(/código de la casa/i);
     expect(html).toMatch(/regeneralo|regenéralo/i);
     expect(html).toMatch(/enlace viejos dejan de servir/);
-    expect(html).toMatch(/Quienes ya la\s+siguen la siguen hasta que dejen de seguirla/);
+    expect(html).toMatch(
+      /el código y\s+el enlace viejos dejan de servir y se quita a todos los que siguen la casa/,
+    );
+    expect(html).toMatch(/necesitarán el código nuevo/);
+    expect(html).not.toMatch(/Quienes ya la\s+siguen la siguen/);
+    expect(html).not.toMatch(/hasta que dejen de seguirla/);
     expect(html).toMatch(/cuánto lleva el corte/);
     expect(html).toContain('Última actualización');
   });

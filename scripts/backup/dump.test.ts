@@ -16,7 +16,7 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminSql, createHome, testDb, truncateAll } from '../../test/integration/helpers';
 
-// Estos tests corren contra el PostgreSQL de `pnpm db:up` (proyecto `integration`). Necesitan
+// Estos tests corren contra el PostgreSQL de `pnpm db:up` (proyecto `backup`). Necesitan
 // `age`/`age-keygen` y `pg_dump`/`pg_restore` 17: los del sistema o, para PostgreSQL, los del
 // contenedor de `compose.dev.yaml`. Si falta algo, el test lo dice y falla: nunca se salta.
 

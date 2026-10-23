@@ -107,8 +107,8 @@ export function Privacy() {
         Cada casa tiene un código de 8 caracteres. Quien lo tenga puede ver si hay luz en esa casa,
         cuánto lleva el corte y el nombre de la casa, y recibir los avisos de esa casa. Lo compartes
         tú, con quien quieras. Si quieres que deje de circular, regenéralo en Ajustes: el código y
-        el enlace viejos dejan de servir y nadie más podrá seguir la casa con ellos. Quienes ya la
-        siguen la siguen hasta que dejen de seguirla.
+        el enlace viejos dejan de servir y se quita a todos los que siguen la casa. Para volver a
+        seguirla necesitarán el código nuevo.
       </p>
 
       <h2>Contacto</h2>

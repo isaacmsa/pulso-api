@@ -20,7 +20,7 @@ Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Para
 | `PATCH /v1/homes/me` | Token | Alias y modo (`base` o `ups`) | `204` | 1 |
 | `GET /v1/homes/me/status` | Token | Estado actual de mi casa | `HomeStatus` | 1 |
 | `GET /v1/homes/me/outages?from&to` | Token | Historial con resumen por día | `OutageHistory { items, reports, totalMs, days }` | 2 |
-| `POST /v1/homes/me/share-code` | Token | Regenerar el código | `{ shareCode }` | 3 |
+| `POST /v1/homes/me/share-code` | Token | Regenerar el código: el viejo deja de servir y se quita a todos los seguidores (A-041, D-030) | `{ shareCode }` | 3 |
 | `POST /v1/events` | Token | Lote de eventos (hasta 200) o latido vacío | `{ accepted, duplicated, status }` | 1 |
 | `POST /v1/follows` | Token | Seguir una casa con su código | `201 { homeId, alias, status }` | 3 |
 | `GET /v1/follows` | Token | Casas que sigo, con su estado | `{ items }` | 3 |
