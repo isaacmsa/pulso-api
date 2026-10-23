@@ -158,11 +158,13 @@ Empezar en un snapshot `powered` reproduce el estado exacto del clasificador: ar
 
 | Dato | Se guarda | Cómo se borra |
 | --- | --- | --- |
-| `events` | 30 días | Cron `retention`, diario a las 4:00 a. m. de Caracas |
+| `events` | 30 días (`at`) | Cron `retention`, diario a las 4:00 a. m. de Caracas |
 | `outages` | Mientras exista la casa | Al borrar la casa (cascada) |
-| `devices` sin actividad | 180 días sin `last_seen_at` | Cron `retention`, en cascada |
-| `devices` registrados que nunca mandaron nada | 7 días | Cron `retention` |
+| `devices` sin actividad | 180 días sin `last_seen_at` | Cron `retention`: borra el dispositivo y su casa (si tiene), y la cascada lleva eventos, cortes y follows |
+| `devices` registrados que nunca mandaron nada | 7 días, sin casa, sin follows y con `last_seen_at = created_at` | Cron `retention` |
 | `push_tickets` | Hasta leer el recibo (unos 15 min) | Cron `sweep` |
+
+`retention` es `runRetention` de `src/jobs/retention.ts`: **una consulta** con tres `DELETE` en CTE (todos ven la misma foto de la base), que devuelve cuántas filas borró de cada tipo y las deja en el log. Corre con el cron `0 8 * * *` (8:00 UTC) que `src/jobs/scheduled.ts` despacha, en staging y producción (A-042). Un dispositivo inactivo se borra junto con su casa, igual que `DELETE /v1/devices/me`; las cascadas disparan al terminar la consulta. Un registro sin uso de más de 180 días se cuenta una sola vez, como inactivo.
 
 Un corte `abierto` que pasa 24 horas sin eventos nuevos de su casa queda `sin_datos` y no suma horas sin luz.
 

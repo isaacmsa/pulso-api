@@ -2,8 +2,9 @@
 // vive en su Hyperdrive, y los secretos van con `wrangler secret put --env <entorno>`.
 // `hyperdrive`, `vars` y `ratelimits` no se heredan: cada entorno repite los suyos.
 // Producción (A-018, A-029) usa los `namespace_id` 2001 a 2004 para no compartir contadores con
-// staging, y su `id` de Hyperdrive sigue pendiente hasta que Isaac lo cree. Los crons llegan en las
-// fases 3 y 4 (A-019).
+// staging, y su `id` de Hyperdrive sigue pendiente hasta que Isaac lo cree. `triggers.crons` no se
+// hereda: cada entorno repite los suyos (A-019, A-042). `retention` corre a las 4:00 a. m. de
+// Caracas; el despachador es `src/jobs/scheduled.ts`.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pulso-api",
@@ -11,6 +12,7 @@
   "compatibility_date": "2026-10-21",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // Sin crons en el nivel superior: en local se prueban con `wrangler dev --test-scheduled`.
 
   // Nivel superior: solo para `wrangler dev` contra el PostgreSQL de `compose.dev.yaml`.
   // La cadena es del contenedor de desarrollo, no secreta. El `id` no se usa en local.
@@ -48,6 +50,7 @@
       // Hyperdrive con la conexión directa y la caché desactivada (A-015). Isaac pasa el `id`.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "4c73e19917d346beb6582b5d254507c6" }],
       "vars": { "ENVIRONMENT": "staging", "EXPOSE_DOCS": "true" },
+      "triggers": { "crons": ["0 8 * * *"] },
       "ratelimits": [
         {
           "name": "RATE_LIMIT_REGISTER",
@@ -78,6 +81,7 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<pendiente-isaac>" }],
       // Sin `EXPOSE_DOCS`: `/docs` responde 404 en producción.
       "vars": { "ENVIRONMENT": "production" },
+      "triggers": { "crons": ["0 8 * * *"] },
       "ratelimits": [
         {
           "name": "RATE_LIMIT_REGISTER",

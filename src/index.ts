@@ -2,6 +2,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import { Scalar } from '@scalar/hono-api-reference';
 import openApiDocument from '../openapi.json';
 import type { AppEnv } from './env';
+import { scheduled } from './jobs/scheduled';
 import { withDb } from './middleware/db';
 import { apiError, errorHandler, notFoundHandler, validationHook } from './middleware/errors';
 import { devices } from './modules/devices';
@@ -58,4 +59,6 @@ export function createApp(options: CreateAppOptions = {}): OpenAPIHono<AppEnv> {
   return app;
 }
 
-export default createApp();
+const app = createApp();
+
+export default { fetch: app.fetch, scheduled };

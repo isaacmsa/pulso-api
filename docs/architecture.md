@@ -45,7 +45,7 @@ pulso-api/
 │  │  └─ time/caracas.ts        # días y semanas en America/Caracas
 │  ├─ modules/<dominio>/        # devices, homes, events, outages, follows, push, pages
 │  │  └─ routes.ts · service.ts · repo.ts · index.ts
-│  ├─ jobs/                     # sweep (cada 5 min), retention (diario)
+│  ├─ jobs/                     # scheduled.ts despacha por cron; retention.ts (diario, ya); sweep (cada 5 min, fase 3)
 │  └─ testing/builders.ts       # snap(), report(), confirmation() para tests
 ├─ drizzle/                     # migraciones SQL generadas, incluidas las funciones de ingesta
 ├─ scripts/
@@ -56,7 +56,7 @@ pulso-api/
 │  └─ integration/              # repositorios y rutas contra PostgreSQL
 ├─ compose.dev.yaml             # PostgreSQL local, 17.11 como Supabase staging
 ├─ openapi.json                 # contrato generado y versionado
-├─ wrangler.jsonc               # local y staging (production en la fase 2), Hyperdrive, Rate Limiting; crons en las fases 3 y 4
+├─ wrangler.jsonc               # local y staging (production en la fase 2), Hyperdrive, Rate Limiting; cron `retention` en staging y producción (A-042), `sweep` en la fase 3
 ├─ worker-configuration.d.ts    # tipos de Workers generados con `pnpm cf-typegen` (versionados)
 ├─ tsconfig.worker.json         # src/ contra los tipos de Workers; tsconfig.json queda para Node (tests y scripts)
 ├─ docs/
