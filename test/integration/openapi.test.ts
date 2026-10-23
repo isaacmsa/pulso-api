@@ -83,6 +83,21 @@ describe('documentación del contrato', () => {
     }
   });
 
+  it('en producción /docs responde 404 (EXPOSE_DOCS sin definir)', async () => {
+    let queries = 0;
+    const app = createApp({ onQuery: () => queries++ });
+    const env = envWith({ ENVIRONMENT: 'production' });
+    expect(env.EXPOSE_DOCS).toBeUndefined();
+
+    const res = await app.request('/docs', {}, env);
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: { code: 'not_found', message: expect.any(String) } });
+    // el contrato sí se sirve: es lo que baja el cliente de la app
+    expect((await app.request('/openapi.json', {}, env)).status).toBe(200);
+    expect(queries).toBe(0);
+  });
+
   it('GET /docs sirve Scalar con EXPOSE_DOCS=true', async () => {
     let queries = 0;
     const app = createApp({ onQuery: () => queries++ });

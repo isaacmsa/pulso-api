@@ -208,7 +208,7 @@
             "items": {
               "$ref": "#/components/schemas/ReportItem"
             },
-            "description": "Reportes del rango, el más reciente primero. Llegan hasta donde llega la retención (30 días)"
+            "description": "Reportes del rango, el más reciente primero, como máximo los 1000 más recientes. Llegan hasta donde llega la retención (30 días)"
           },
           "totalMs": {
             "type": "integer",
@@ -1103,6 +1103,7 @@
             "schema": {
               "type": "integer",
               "exclusiveMinimum": 0,
+              "maximum": 4102444800000,
               "description": "Inicio del rango, epoch ms (incluido)",
               "example": 1760000000000
             },
@@ -1115,6 +1116,7 @@
             "schema": {
               "type": "integer",
               "exclusiveMinimum": 0,
+              "maximum": 4102444800000,
               "description": "Fin del rango, epoch ms (excluido). Debe ser mayor que `from`, con un máximo de 92 días",
               "example": 1760604800000
             },

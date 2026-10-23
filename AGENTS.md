@@ -29,6 +29,7 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 | Regenerar los tipos del Worker tras cambiar `wrangler.jsonc` | `pnpm cf-typegen` |
 | Regenerar y verificar el contrato (fase 1) | `pnpm openapi:export` / `pnpm openapi:check` |
 | Deploy a staging (fase 1) | Cuando `ci` pasa en un push a `main` (`deploy.yml`, despliega el commit que probó `ci`); a mano: `pnpm deploy:staging` |
+| Deploy a producción | Solo a mano: Actions > `deploy-production` > Run workflow (`ref` por defecto `main`), con la aprobación de Isaac en el Environment `production` (A-029) |
 | Secreto en un entorno | `pnpm exec wrangler secret put <NOMBRE> --env staging` |
 | Volver a la versión anterior | `pnpm exec wrangler rollback --env production` |
 

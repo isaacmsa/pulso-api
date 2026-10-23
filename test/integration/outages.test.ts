@@ -290,6 +290,44 @@ describe('GET /v1/homes/me/outages', () => {
     expect(queries).toBe(0);
   });
 
+  it('un epoch ms más allá del año 2100 responde 400 sin consultar la base (no es un 500)', async () => {
+    const { token } = await register(true);
+    for (const path of [
+      range(8_700_000_000_000_000, 8_700_000_000_001_000), // `new Date` lanzaría Invalid time value
+      range(FROM, 4_102_444_800_001), // un ms después del tope
+    ]) {
+      const res = await call(path, token);
+      expect(res.status, path).toBe(400);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe('validation_failed');
+    }
+    expect(queries).toBe(0);
+  });
+
+  it('acepta un `to` justo en el tope del año 2100', async () => {
+    const { token } = await register(true);
+    const to = 4_102_444_800_000;
+
+    const res = await call(range(to - 7 * DAY, to), token);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('los reportes se limitan a los 1000 más recientes, y siguen del más reciente al más viejo', async () => {
+    const { token, deviceId, homeId } = await register(true);
+    await sql`
+      INSERT INTO app.events (device_id, id, home_id, kind, device_at, at, payload, received_at)
+      SELECT ${deviceId}, gen_random_uuid(), ${homeId}, 'report', ${FROM}::bigint + g, ${FROM}::bigint + g,
+             jsonb_build_object('kind', 'report', 'value', 'hay_luz'), ${FROM}::bigint + g
+      FROM generate_series(1, 1005) AS g`;
+
+    const body = await getOk(token);
+
+    expect(body.reports).toHaveLength(1000);
+    expect(body.reports[0]?.at).toBe(FROM + 1005);
+    expect(body.reports[999]?.at).toBe(FROM + 6);
+  });
+
   it('acepta un rango de exactamente 92 días', async () => {
     const { token } = await register(true);
 

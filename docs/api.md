@@ -7,7 +7,7 @@
 - Cómo se publica el contrato OpenAPI que consume la app
 - Cómo se limitan las peticiones y cuándo sale cada push
 
-Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Para la app el token es opaco: lo guarda tal cual lo devuelve `POST /v1/devices`. Por dentro es `<aleatorio>.<firma>` (A-021): el Worker verifica la firma HMAC antes de consultar la base, y un token sin firma válida responde `401 invalid_token` sin tocar la base ni el límite. Cada ruta se define con `createRoute` de `@hono/zod-openapi` (A-002): el mismo esquema Zod valida la petición y genera el contrato. `openapi.json` (versionado en la raíz del repo) es el contrato que consume la app. `GET /openapi.json` sirve ese archivo tal cual, byte a byte (A-040): el CI verifica que coincide con las rutas, y `deploy.yml` compara lo servido por staging con el archivo después de cada despliegue. Un cliente como Scalar puede agregar `servers` en su vista, pero el contrato no lo trae.
+Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Para la app el token es opaco: lo guarda tal cual lo devuelve `POST /v1/devices`. Por dentro es `<aleatorio>.<firma>` (A-021): el Worker verifica la firma HMAC antes de consultar la base, y un token sin firma válida responde `401 invalid_token` sin tocar la base ni el límite. Cada ruta se define con `createRoute` de `@hono/zod-openapi` (A-002): el mismo esquema Zod valida la petición y genera el contrato. `openapi.json` (versionado en la raíz del repo) es el contrato que consume la app. `GET /openapi.json` sirve ese archivo tal cual, byte a byte (A-040): el CI verifica que coincide con las rutas, y `deploy.yml` compara lo servido por staging con el archivo después de cada despliegue. El contrato no trae `servers`; probablemente lo agrega un cliente como Scalar en su vista, pero no se verificó.
 
 ## Endpoints
 
@@ -51,7 +51,7 @@ Cada esquema de petición y respuesta es un componente con nombre en `openapi.js
 
 ## Historial de cortes
 
-`GET /v1/homes/me/outages?from=<epochMs>&to=<epochMs>` (A-027). `from` y `to` son obligatorios, enteros positivos en epoch ms, con `from < to` y `to − from ≤ 92 días`; el rango es `[from, to)`. Un rango inválido responde `400 validation_failed` con `issues` y **sin tocar la base** (se valida después del token y del límite, y antes de la consulta de auth). Un dispositivo sin casa responde `404 not_found`. Cuesta **2 consultas**: la auth y un CTE que trae los cortes y los reportes.
+`GET /v1/homes/me/outages?from=<epochMs>&to=<epochMs>` (A-027). `from` y `to` son obligatorios, enteros positivos en epoch ms (hasta el año 2100, `4102444800000`), con `from < to` y `to − from ≤ 92 días`; el rango es `[from, to)`. Un rango inválido responde `400 validation_failed` con `issues` y **sin tocar la base** (se valida después del token y del límite, y antes de la consulta de auth). Un dispositivo sin casa responde `404 not_found`. Cuesta **2 consultas**: la auth y un CTE que trae los cortes y los reportes. Los `reports` son como máximo los 1000 más recientes del rango.
 
 ```ts
 OutageHistory = {

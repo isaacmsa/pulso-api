@@ -1,0 +1,119 @@
+name: deploy-production
+
+# Producción se despliega solo a mano (A-029): un deploy es una decisión, no el efecto de un push.
+# El job usa el Environment `production`, que lleva a Isaac como revisor obligatorio: el job espera
+# su aprobación antes de arrancar y antes de que se lea cualquier secreto del Environment.
+# Solo acepta un commit que sea de `main` y en el que `ci` haya terminado en verde. Aplica las
+# migraciones (solo agregan, regla 10) y después despliega el código, igual que staging.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Rama, etiqueta o commit a desplegar (tiene que estar en main y con ci en verde)
+        type: string
+        default: main
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Revisar que el commit sea de main y que ci haya pasado
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "Commit a desplegar: $sha (ref: $REF)"
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::error title=Commit fuera de main::$sha no está en main. Producción solo despliega commits de main."
+            exit 1
+          fi
+          passed=$(gh run list --workflow ci.yml --commit "$sha" --json conclusion \
+            --jq '[.[] | select(.conclusion == "success")] | length')
+          if [ "$passed" -lt 1 ]; then
+            echo "::error title=ci sin pasar::ci no terminó en verde en $sha. Espera a que pase (o corrígelo) y vuelve a lanzar."
+            exit 1
+          fi
+          echo "$sha está en main y ci pasó."
+      - name: Revisar que producción esté configurada
+        run: |
+          ready=$(node scripts/ci/hyperdrive-ready.mjs production)
+          if [ "$ready" != "ready=true" ]; then
+            echo "::error title=Producción sin configurar::wrangler.jsonc aún tiene pendiente el id de Hyperdrive de producción (env.production.hyperdrive). Isaac lo crea, lo pone en el archivo y lo sube a main antes del primer deploy."
+            exit 1
+          fi
+      - name: Revisar los secretos de GitHub
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          for name in PRODUCTION_DATABASE_URL CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Faltan secretos::Cargar en Settings > Secrets and variables > Actions (o en el Environment production):$missing"
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Aplicar migraciones en producción
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      - name: Desplegar pulso-api
+        run: pnpm exec wrangler deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Comprobar que producción responde y sirve el contrato del repo
+        run: |
+          # /health hace un SELECT 1: comprueba el Worker, Hyperdrive y la base. Un despliegue
+          # nuevo puede tardar unos segundos en responder, de ahí los reintentos.
+          base="https://pulso-api.isaac-mendozasa.workers.dev"
+          healthy=false
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS --max-time 20 "$base/health"; then
+              echo
+              healthy=true
+              break
+            fi
+            if [ "$attempt" -lt 5 ]; then sleep 5; fi
+          done
+          if [ "$healthy" != "true" ]; then
+            echo "::error title=Producción no responde::$base/health no respondió 200. Para volver atrás: pnpm exec wrangler rollback --env production"
+            exit 1
+          fi
+          # lo servido tiene que ser, byte a byte, el openapi.json del commit desplegado (A-040)
+          url="$base/openapi.json"
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS --max-time 20 "$url" -o served-openapi.json && cmp -s served-openapi.json openapi.json; then
+              echo "producción sirve el openapi.json del repo."
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then sleep 5; fi
+          done
+          echo "::error title=Contrato distinto::$url no es igual al openapi.json del repo. Compara a mano: curl -fsS $url | diff - openapi.json"
+          diff served-openapi.json openapi.json | head -40 || true
+          exit 1

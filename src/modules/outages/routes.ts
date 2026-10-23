@@ -15,8 +15,11 @@ const DAY_MS = 86_400_000;
 /** Tope del rango (A-027): acota las filas y el CPU de una petición. */
 export const MAX_RANGE_MS = 92 * DAY_MS;
 
+/** Tope de un epoch ms (1 de enero de 2100): más allá, `new Date` lanza y sería un 500. */
+export const MAX_EPOCH_MS = 4_102_444_800_000;
+
 // Los parámetros de la URL llegan como texto: `coerce` los vuelve número antes de validar.
-const epochMsParam = z.coerce.number().int().positive();
+const epochMsParam = z.coerce.number().int().positive().max(MAX_EPOCH_MS);
 
 export const outagesQuerySchema = z
   .object({
@@ -85,7 +88,7 @@ export const outageHistorySchema = z
     }),
     reports: z.array(reportItemSchema).openapi({
       description:
-        'Reportes del rango, el más reciente primero. Llegan hasta donde llega la retención (30 días)',
+        'Reportes del rango, el más reciente primero, como máximo los 1000 más recientes. Llegan hasta donde llega la retención (30 días)',
     }),
     totalMs: z.number().int().nonnegative().openapi({
       description:

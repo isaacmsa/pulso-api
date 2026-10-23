@@ -1,7 +1,9 @@
 // Configuración del Worker. Nada secreto aquí (regla 12): la cadena de conexión de cada entorno
 // vive en su Hyperdrive, y los secretos van con `wrangler secret put --env <entorno>`.
 // `hyperdrive`, `vars` y `ratelimits` no se heredan: cada entorno repite los suyos.
-// Producción se agrega en la fase 2 (A-018) y los crons en las fases 3 y 4 (A-019).
+// Producción (A-018, A-029) usa los `namespace_id` 2001 a 2004 para no compartir contadores con
+// staging, y su `id` de Hyperdrive sigue pendiente hasta que Isaac lo cree. Los crons llegan en las
+// fases 3 y 4 (A-019).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pulso-api",
@@ -65,6 +67,36 @@
         {
           "name": "RATE_LIMIT_PUBLIC",
           "namespace_id": "1004",
+          "simple": { "limit": 60, "period": 60 }
+        }
+      ]
+    },
+    "production": {
+      "name": "pulso-api",
+      // Isaac crea el Hyperdrive de producción (conexión directa, caché desactivada, A-015) y
+      // reemplaza el marcador. Mientras esté, `deploy-production.yml` no migra ni despliega.
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<pendiente-isaac>" }],
+      // Sin `EXPOSE_DOCS`: `/docs` responde 404 en producción.
+      "vars": { "ENVIRONMENT": "production" },
+      "ratelimits": [
+        {
+          "name": "RATE_LIMIT_REGISTER",
+          "namespace_id": "2001",
+          "simple": { "limit": 5, "period": 60 }
+        },
+        {
+          "name": "RATE_LIMIT_EVENTS",
+          "namespace_id": "2002",
+          "simple": { "limit": 30, "period": 60 }
+        },
+        {
+          "name": "RATE_LIMIT_API",
+          "namespace_id": "2003",
+          "simple": { "limit": 120, "period": 60 }
+        },
+        {
+          "name": "RATE_LIMIT_PUBLIC",
+          "namespace_id": "2004",
           "simple": { "limit": 60, "period": 60 }
         }
       ]

@@ -32,23 +32,16 @@ jobs:
         id: gate
         run: |
           # el id de Hyperdrive de staging, y solo ese: un comentario con el marcador no cuenta
-          staging_id=$(node -e '
-            const text = require("node:fs").readFileSync("wrangler.jsonc", "utf8");
-            const strip = text.replace(/^\s*\/\/.*$/gm, "");
-            const config = JSON.parse(strip);
-            process.stdout.write(config.env?.staging?.hyperdrive?.[0]?.id ?? "");
-          ')
-          if [ -z "$staging_id" ] || [ "$staging_id" = "<pendiente-isaac>" ]; then
+          ready=$(node scripts/ci/hyperdrive-ready.mjs staging)
+          if [ "$ready" != "ready=true" ]; then
             msg="wrangler.jsonc aún tiene pendiente el id de Hyperdrive de staging (env.staging.hyperdrive). No se migra ni se despliega hasta que Isaac lo ponga."
             if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
               echo "::warning title=Deploy omitido::$msg"
             else
               echo "::notice title=Deploy omitido::$msg"
             fi
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "$ready" >> "$GITHUB_OUTPUT"
       - name: Revisar los secretos de GitHub
         if: steps.gate.outputs.ready == 'true'
         env:
@@ -92,11 +85,11 @@ jobs:
           # nuevo puede tardar unos segundos en responder, de ahí los reintentos.
           url="https://pulso-api-staging.isaac-mendozasa.workers.dev/openapi.json"
           for attempt in 1 2 3 4 5; do
-            if curl -fsS "$url" -o served-openapi.json && cmp -s served-openapi.json openapi.json; then
+            if curl -fsS --max-time 20 "$url" -o served-openapi.json && cmp -s served-openapi.json openapi.json; then
               echo "staging sirve el openapi.json del repo."
               exit 0
             fi
-            sleep 5
+            if [ "$attempt" -lt 5 ]; then sleep 5; fi
           done
           echo "::error title=Contrato distinto::$url no es igual al openapi.json del repo. Compara a mano: curl -fsS $url | diff - openapi.json"
           diff served-openapi.json openapi.json | head -40 || true

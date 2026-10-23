@@ -23,10 +23,14 @@ type Row = {
   value: ReportRow['value'] | null;
 };
 
+/** Tope de reportes por respuesta (A-027): los más recientes; acota el JSON y el CPU de la ruta. */
+export const MAX_REPORTS = 1000;
+
 /**
  * Los cortes que se solapan con `[from, to)` y los reportes con `at` en `[from, to)`, de una casa,
  * en **una sola consulta** (un CTE por cada uno, unidos en filas con la marca `t`). Los dos con
- * el más reciente primero. `events_home_at` y `outages_home_started` sirven a los filtros.
+ * el más reciente primero, y los reportes solo los `MAX_REPORTS` más recientes.
+ * `events_home_at` y `outages_home_started` sirven a los filtros.
  * Sin `jsonb_agg`: Drizzle deja el `jsonb` sin parsear (AGENTS.md).
  */
 export async function findOutageHistory(
@@ -44,6 +48,8 @@ export async function findOutageHistory(
       SELECT at, payload->>'value' AS value
       FROM app.events
       WHERE home_id = ${homeId} AND kind = 'report' AND at >= ${range.from} AND at < ${range.to}
+      ORDER BY at DESC
+      LIMIT ${MAX_REPORTS}
     )
     SELECT 'o' AS t, id::text AS id, started_at, ended_at, status, confidence, confirmed,
            NULL::bigint AS at, NULL::text AS value
