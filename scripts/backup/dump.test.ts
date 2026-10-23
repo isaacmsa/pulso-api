@@ -90,6 +90,23 @@ function bash(args: string[], { env = {}, pathPrefix = [], input }: RunOptions =
   return spawnSync('bash', args, { env: merged, encoding: 'utf8', input });
 }
 
+/** Un `pg_dump` falso (carpeta para el PATH) cuyo cuerpo es el script dado. */
+function fakePgDump(body: string): string {
+  const dir = join(work, `fake-${randomUUID()}`);
+  mkdirSync(dir);
+  writeFileSync(join(dir, 'pg_dump'), `#!/usr/bin/env bash\n${body}\n`);
+  chmodSync(join(dir, 'pg_dump'), 0o755);
+  return dir;
+}
+
+/** Destinatario de un par `age` efímero (la clave privada se queda en la carpeta temporal). */
+function newRecipient(): string {
+  const keygen = bash(['-c', `age-keygen -o "${join(work, `${randomUUID()}.key`)}" 2>&1`]);
+  const recipient = /(age1[a-z0-9]+)/.exec(keygen.stdout)?.[1];
+  if (!recipient) throw new Error(`age-keygen no dio una clave pública: ${keygen.stdout}`);
+  return recipient;
+}
+
 function newOutDir(): string {
   const dir = join(work, randomUUID());
   mkdirSync(dir);
@@ -138,19 +155,16 @@ describe('scripts/backup/dump.sh', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  it('si pg_dump falla, el respaldo sale con error y no deja archivo', () => {
+  it('si pg_dump no logra conectar, el respaldo sale con error y no deja archivo', () => {
     requireAge();
     const pg = pgToolsDir();
-    const keyFile = join(work, 'fallo.key');
-    const keygen = bash(['-c', `age-keygen -o "${keyFile}" 2>&1`]);
-    const recipient = /(age1[a-z0-9]+)/.exec(keygen.stdout)?.[1] ?? '';
     const dir = newOutDir();
     const out = join(dir, 'pulso.dump.age');
     // el puerto 1 no tiene nada escuchando
     const result = bash([script, out], {
       env: {
         DATABASE_URL: 'postgres://pulso_api:pulso_dev@localhost:1/pulso_test',
-        BACKUP_AGE_RECIPIENT: recipient,
+        BACKUP_AGE_RECIPIENT: newRecipient(),
       },
       pathPrefix: [pg],
     });
@@ -158,22 +172,63 @@ describe('scripts/backup/dump.sh', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  it('si el resultado pesa menos de 1 KB, sale con error y no deja archivo', () => {
+  it('si pg_dump falla a medio camino, aunque ya haya escrito 8 KB, sale con error y no deja archivo', () => {
     requireAge();
-    const tiny = join(work, 'tiny');
-    mkdirSync(tiny, { recursive: true });
-    writeFileSync(join(tiny, 'pg_dump'), '#!/usr/bin/env bash\nprintf x\n');
-    chmodSync(join(tiny, 'pg_dump'), 0o755);
-    const keygen = bash(['-c', `age-keygen -o "${join(work, 'tiny.key')}" 2>&1`]);
-    const recipient = /(age1[a-z0-9]+)/.exec(keygen.stdout)?.[1] ?? '';
+    const fake = fakePgDump('head -c 8192 /dev/urandom\nexit 1');
     const dir = newOutDir();
     const out = join(dir, 'pulso.dump.age');
     const result = bash([script, out], {
-      env: { DATABASE_URL: testUrl(), BACKUP_AGE_RECIPIENT: recipient },
-      pathPrefix: [tiny],
+      env: { DATABASE_URL: testUrl(), BACKUP_AGE_RECIPIENT: newRecipient() },
+      pathPrefix: [fake],
+    });
+    expect(result.status).not.toBe(0);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('con un destinatario age inválido, sale con error y no deja archivo', () => {
+    requireAge();
+    const fake = fakePgDump('head -c 8192 /dev/urandom');
+    const dir = newOutDir();
+    const out = join(dir, 'pulso.dump.age');
+    const result = bash([script, out], {
+      env: { DATABASE_URL: testUrl(), BACKUP_AGE_RECIPIENT: 'age1invalid' },
+      pathPrefix: [fake],
+    });
+    expect(result.status).not.toBe(0);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('si el resultado pesa menos de 1 KB, sale con error y no deja archivo', () => {
+    requireAge();
+    const fake = fakePgDump('printf x');
+    const dir = newOutDir();
+    const out = join(dir, 'pulso.dump.age');
+    const result = bash([script, out], {
+      env: { DATABASE_URL: testUrl(), BACKUP_AGE_RECIPIENT: newRecipient() },
+      pathPrefix: [fake],
     });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('pesa');
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('en GitHub Actions enmascara host, usuario y contraseña antes de correr pg_dump', () => {
+    const fake = fakePgDump('echo "pg_dump corrió" >&2\nexit 1');
+    const dir = newOutDir();
+    const result = bash([script, join(dir, 'pulso.dump.age')], {
+      env: {
+        GITHUB_ACTIONS: 'true',
+        DATABASE_URL:
+          'postgres://pulso_api.abcd1234:s3cr3t%40x@aws-1-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require',
+        BACKUP_AGE_RECIPIENT: 'age1xxx',
+      },
+      pathPrefix: [fake],
+    });
+    const lines = result.stdout.split('\n');
+    expect(lines).toContain('::add-mask::aws-1-us-east-1.pooler.supabase.com');
+    expect(lines).toContain('::add-mask::pulso_api.abcd1234');
+    expect(lines).toContain('::add-mask::s3cr3t%40x');
+    expect(result.stderr).toContain('pg_dump corrió');
     expect(readdirSync(dir)).toEqual([]);
   });
 

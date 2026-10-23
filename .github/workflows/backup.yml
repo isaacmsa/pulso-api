@@ -2,7 +2,8 @@ name: backup
 
 # Respaldo nocturno de producción (A-030): `pg_dump` de los esquemas `app` y `drizzle`, cifrado con
 # `age` a la clave pública de Isaac. La clave privada nunca entra a GitHub. El archivo cifrado queda
-# como artefacto privado, con 14 días de retención.
+# como artefacto, con 14 días de retención. El repositorio es público: el artefacto se puede bajar
+# sin iniciar sesión en el repo, y solo `age` lo protege.
 # Usa el Environment `backup` (sin aprobación, solo la rama main), que tiene
 # `PRODUCTION_DATABASE_URL` y `BACKUP_AGE_RECIPIENT`; así un respaldo nocturno no espera un clic y
 # el job de deploy sigue pidiendo el suyo. Los secretos van solo en el `env` del paso que los usa.
@@ -44,4 +45,5 @@ jobs:
           name: ${{ steps.dump.outputs.file }}
           path: ${{ steps.dump.outputs.file }}
           retention-days: 14
+          overwrite: true # un re-run del mismo día no choca con el artefacto anterior
           if-no-files-found: error

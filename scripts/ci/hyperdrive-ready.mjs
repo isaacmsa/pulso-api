@@ -84,9 +84,17 @@ export function isReady(text, env) {
 
 // `process.argv[1]` puede ser un enlace simbólico o una ruta relativa al archivo: se compara la ruta
 // real, no el texto. Si la comparación fallara, el script saldría sin imprimir nada y `deploy.yml`
-// leería una salida vacía.
-const isMain =
-  process.argv[1] && realpathSync(process.argv[1]) === realpathSync(import.meta.filename);
+// leería una salida vacía. Una ruta que no se puede resolver (p. ej. `node -e`) no es el script.
+function isEntryPoint() {
+  try {
+    return (
+      !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(import.meta.filename)
+    );
+  } catch {
+    return false;
+  }
+}
+const isMain = isEntryPoint();
 if (isMain) {
   const [env, file = 'wrangler.jsonc'] = process.argv.slice(2);
   if (!env) {

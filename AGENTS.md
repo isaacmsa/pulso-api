@@ -18,8 +18,9 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 | Tarea | Comando |
 | --- | --- |
 | Instalar dependencias | `pnpm install` |
-| Lint, tipos y tests (los de integración necesitan `pnpm db:up` y un `.env` copiado de `.env.example`; los de `scripts/backup/` además `age` y `age-keygen` en el PATH, y usan el `pg_dump` 17 del contenedor si el del sistema no es 17) | `pnpm lint && pnpm typecheck && pnpm test` |
+| Lint, tipos y tests (los de integración necesitan `pnpm db:up` y un `.env` copiado de `.env.example`; `pnpm test` no corre los del respaldo) | `pnpm lint && pnpm typecheck && pnpm test` |
 | Solo los tests unitarios (sin Docker) | `pnpm test:unit` |
+| Tests del respaldo (`scripts/backup/`; necesitan `pnpm db:up`, `age` y `age-keygen` en el PATH, y usan el `pg_dump` 17 del contenedor si el del sistema no es 17) | `pnpm test:backup` |
 | Analizar un exporte del registrador | `pnpm spike:analyze <archivo.json>` |
 | Mover un exporte real en el tiempo para publicarlo en `test/fixtures/exports/` | `pnpm fixtures:shift <entrada.json> <salida.json>` |
 | PostgreSQL local | `pnpm db:up` (`docker compose -f compose.dev.yaml up -d --wait`, puerto 54322) |

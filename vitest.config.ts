@@ -9,7 +9,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
-          // el respaldo necesita PostgreSQL y `age`: corre en el proyecto de integración
+          // los tests del respaldo van en el proyecto `backup`
           exclude: ['scripts/backup/**'],
         },
       },
@@ -17,10 +17,23 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'integration',
-          include: ['test/integration/**/*.test.ts', 'scripts/backup/**/*.test.ts'],
+          include: ['test/integration/**/*.test.ts'],
           fileParallelism: false,
           globalSetup: ['test/integration/setup.ts'],
           // los tests leen TEST_DATABASE_URL; setup.ts la carga de .env solo en su proceso
+          env: loadDotenv(),
+        },
+      },
+      {
+        // El respaldo necesita PostgreSQL y `age`: `pnpm test:backup`, aparte de `pnpm test`
+        // (que solo corre `unit` e `integration`). Misma base de test que `integration`, así que
+        // nunca corren a la vez.
+        extends: true,
+        test: {
+          name: 'backup',
+          include: ['scripts/backup/**/*.test.ts'],
+          fileParallelism: false,
+          globalSetup: ['test/integration/setup.ts'],
           env: loadDotenv(),
         },
       },

@@ -26,12 +26,45 @@ if [ -z "${BACKUP_AGE_RECIPIENT:-}" ]; then
   exit 2
 fi
 
+# El repositorio es público: los logs de Actions los puede leer cualquiera. Si pg_dump falla al
+# conectar, su error imprime el host del pooler y el usuario (`pulso_api.<ref>`). Antes de correrlo
+# se enmascaran host, usuario y contraseña (también la forma sin decodificar del %xx).
+mask_connection_parts() {
+  local rest authority userinfo hostport user pass host part
+  rest="${DATABASE_URL#*://}"
+  authority="${rest%%[/?]*}"
+  hostport="${authority##*@}"
+  host="${hostport%%:*}"
+  user=""
+  pass=""
+  if [ "$authority" != "$hostport" ]; then
+    userinfo="${authority%@*}"
+    user="${userinfo%%:*}"
+    if [ "$userinfo" != "$user" ]; then pass="${userinfo#*:}"; fi
+  fi
+  for part in "$host" "$user" "$pass"; do
+    if [ -n "$part" ]; then echo "::add-mask::$part"; fi
+  done
+}
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  mask_connection_parts
+fi
+
 partial="$out.partial"
-trap 'status=$?; if [ "$status" -ne 0 ]; then rm -f "$partial"; fi' EXIT
+cleanup() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then rm -f "$partial"; fi
+}
+# Una cancelación o un timeout del job (INT/TERM) también deja la carpeta sin lo parcial.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 umask 077
 rm -f "$partial"
 
+# La cadena va en argv: se acepta en un runner de un solo uso y sin otros usuarios (en los logs
+# GitHub la enmascara por ser un secreto).
 pg_dump --format=custom --schema=app --schema=drizzle --no-password "$DATABASE_URL" \
   | age --recipient "$BACKUP_AGE_RECIPIENT" --output "$partial"
 
