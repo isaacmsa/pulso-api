@@ -234,7 +234,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "pattern": "^[2-9A-HJKMNP-Z]{8}$",
+            "pattern": "^[2-9A-HJKMNP-Za-hjkmnp-z]{8}$",
             "description": "Código de la casa, 8 caracteres. Las minúsculas se aceptan",
             "example": "K7M2QX9P"
           },

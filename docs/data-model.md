@@ -105,7 +105,7 @@ ALTER TABLE app.homes ENABLE ROW LEVEL SECURITY;   -- y lo mismo en las otras ci
 
 ## Funciones de ingesta
 
-Viven en `drizzle/0001_ingest_functions.sql`, que también agrega `homes.pending_anchor`. Son `plpgsql`, `SECURITY INVOKER`, de `pulso_api` y sin `EXECUTE` para `PUBLIC`. Cada llamada es una consulta por Hyperdrive y corre en su propia transacción: o se aplica todo o nada.
+Las dos primeras viven en `drizzle/0001_ingest_functions.sql`, que también agrega `homes.pending_anchor`. Son `plpgsql`, `SECURITY INVOKER`, de `pulso_api` y sin `EXECUTE` para `PUBLIC`. Cada llamada es una consulta por Hyperdrive y corre en su propia transacción: o se aplica todo o nada.
 
 ```sql
 app.ingest_batch(p_device_id uuid, p_home_id uuid, p_events jsonb,
@@ -116,6 +116,13 @@ app.apply_outages(p_home_id uuid, p_revision bigint, p_changes jsonb,
                   p_status jsonb, p_now bigint) RETURNS jsonb
 -- { applied, status: { state, since, alias, openOutageStart } }
 ```
+
+```sql
+app.replace_share_code(p_home_id uuid, p_code text) RETURNS text
+-- el código nuevo, o NULL si la casa no existe (no borra nada)
+```
+
+**`replace_share_code`** (`drizzle/0002_replace_share_code.sql`, A-041) cambia `homes.share_code` y borra todos los `follows` de la casa. Tiene las mismas propiedades que las de ingesta (`plpgsql`, `SECURITY INVOKER`, `search_path = app, pg_temp`, de `pulso_api`, sin `EXECUTE` para `PUBLIC`). Es una función y no un solo CTE por la concurrencia: el `UPDATE` toma el candado de la fila (cambia una columna con índice único) y el `DELETE` va como sentencia aparte, cuya instantánea es posterior al candado, así que ve un follow confirmado mientras el `UPDATE` esperaba. La otra mitad de la carrera la cierra la consulta de `POST /v1/follows`, que busca la casa con `FOR KEY SHARE`: si el código cambia mientras espera el candado, lo vuelve a comprobar y responde 404. Si el código nuevo choca (`23505`) se deshace todo y el Worker reintenta.
 
 **`ingest_batch`** guarda cada evento de `p_events` (ya validado por Zod) con `INSERT … ON CONFLICT (device_id, id) DO NOTHING`: `device_at` es su `at` tal cual, `at = device_at + p_offset_ms`, `payload` es el evento original y `received_at = p_received_at`. `duplicated` es lo que no entró.
 

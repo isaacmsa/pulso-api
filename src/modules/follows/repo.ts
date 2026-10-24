@@ -33,7 +33,9 @@ export type FollowResult =
 /**
  * Sigue la casa con ese código, en **una sola consulta**: busca la casa, cuenta los follows del
  * dispositivo, hace el upsert (que solo corre bajo el tope, o si ya la seguía) y lee el estado y
- * el corte abierto. Sin fila: el código no existe. Con fila y sin `follow_alias`: no entró por el
+ * el corte abierto. El `FOR KEY SHARE` toma el candado de la fila de la casa y, si un
+ * `replace_share_code` la estaba cambiando, vuelve a comprobar `share_code` al obtenerlo: el
+ * código viejo responde 404 y no deja un follow que sobreviva a la regeneración (A-041). Sin fila: el código no existe. Con fila y sin `follow_alias`: no entró por el
  * tope. Con dos peticiones a la vez el tope puede pasarse por una (cada una cuenta antes de que
  * entre la otra); es un tope de cortesía, no de seguridad.
  */
@@ -43,7 +45,9 @@ export async function followHome(
 ): Promise<FollowResult> {
   const [row] = await sql<FollowRow[]>`
     WITH target AS (
-      SELECT id, alias, status, status_since FROM app.homes WHERE share_code = ${follow.code}
+      SELECT id, alias, status, status_since FROM app.homes
+      WHERE share_code = ${follow.code}
+      FOR KEY SHARE
     ), mine AS (
       SELECT home_id FROM app.follows WHERE follower_device_id = ${follow.deviceId}::uuid
     ), upserted AS (
@@ -84,7 +88,7 @@ export async function listFollows(sql: postgres.Sql, deviceId: string): Promise<
       LIMIT 1
     ) open_outage ON true
     WHERE f.follower_device_id = ${deviceId}
-    ORDER BY lower(f.alias), f.alias, f.home_id`;
+    ORDER BY f.alias COLLATE "und-x-icu", f.alias, f.home_id`;
   return rows.map((row) => toItem({ ...row, follow_alias: row.follow_alias as string }));
 }
 

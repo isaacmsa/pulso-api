@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import type postgres from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Bindings, RateLimiter } from '../../src/env';
 import { createApp } from '../../src/index';
+import * as followsService from '../../src/modules/follows/service';
 import { regenerateShareCode } from '../../src/modules/homes/service';
 import { TEST_SIGNING_KEY, testDb, truncateAll } from './helpers';
 
@@ -291,6 +293,19 @@ describe('follows y share-code', () => {
       expect(queries).toBe(2);
     });
 
+    it('ordena por alias con acentos y mayúsculas como lo haría una persona', async () => {
+      const follower = await register();
+      for (const alias of ['Zulia', 'Álvaro', 'abuela', 'Beto', 'árbol']) {
+        const home = await registerWithHome();
+        await followOk(follower.token, home.shareCode, alias);
+      }
+
+      const res = await call('GET', '/v1/follows', follower.token);
+
+      const { items } = (await res.json()) as { items: FollowBody[] };
+      expect(items.map((i) => i.alias)).toEqual(['abuela', 'Álvaro', 'árbol', 'Beto', 'Zulia']);
+    });
+
     it('trae el corte abierto de cada casa', async () => {
       const owner = await registerWithHome();
       const follower = await register();
@@ -458,6 +473,20 @@ describe('follows y share-code', () => {
       expect(home?.share_code).toBe(owner.shareCode);
     });
 
+    it('la función es SECURITY INVOKER, fija el search_path y no tiene EXECUTE para PUBLIC', async () => {
+      const [fn] = await sql<
+        { prosecdef: boolean; proconfig: string[] | null; public_execute: boolean }[]
+      >`
+        SELECT prosecdef, proconfig,
+               EXISTS (
+                 SELECT 1 FROM aclexplode(proacl) a WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+               ) AS public_execute
+        FROM pg_proc WHERE oid = 'app.replace_share_code(uuid, text)'::regprocedure`;
+      expect(fn?.prosecdef).toBe(false);
+      expect(fn?.proconfig).toContain('search_path=app, pg_temp');
+      expect(fn?.public_execute).toBe(false);
+    });
+
     it('una casa que ya no existe devuelve null y no borra follows de nadie', async () => {
       const owner = await registerWithHome();
       const follower = await register();
@@ -465,6 +494,84 @@ describe('follows y share-code', () => {
 
       expect(await regenerateShareCode(sql, randomUUID())).toBeNull();
       expect(await followCount()).toBe(1);
+    });
+  });
+
+  describe('carreras entre seguir y regenerar (A-041)', () => {
+    /** Espera a que alguna consulta de la base esté esperando un candado y sea la de `pattern`. */
+    async function waitForLockWait(pattern: string) {
+      for (let i = 0; i < 250; i++) {
+        const [row] = await sql<{ n: string }[]>`
+          SELECT count(*) AS n FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'
+            AND pid <> pg_backend_pid() AND query LIKE ${`%${pattern}%`}`;
+        if (Number(row?.n) > 0) return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error(`ninguna consulta con ${pattern} esperó un candado`);
+    }
+
+    function gate() {
+      let open!: () => void;
+      const opened = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return { opened, open };
+    }
+
+    it('regenerar primero: un follow con el código viejo que esperaba el candado responde 404', async () => {
+      const owner = await registerWithHome();
+      const follower = await register();
+      const release = gate();
+      const regenerated = gate();
+      // regenerar abre su transacción y toma el candado de la casa, sin confirmar
+      const regen = sql.begin(async (tx) => {
+        await tx`SELECT app.replace_share_code(${owner.homeId}::uuid, 'QQQQQQQ3'::text)`;
+        regenerated.open();
+        await release.opened;
+      });
+      await regenerated.opened;
+      // el follow lee el código viejo y se queda esperando el candado de la fila
+      const following = followsService.followHome(
+        sql,
+        follower.deviceId,
+        { code: owner.shareCode, alias: 'Mamá' },
+        NOW,
+      );
+      await waitForLockWait('INSERT INTO app.follows');
+      release.open();
+      await regen;
+
+      expect(await following).toEqual({ kind: 'not_found' });
+      expect(await followCount()).toBe(0);
+    });
+
+    it('seguir primero: el follow que se confirma mientras regenerar esperaba también se borra', async () => {
+      const owner = await registerWithHome();
+      const follower = await register();
+      const release = gate();
+      const followed = gate();
+      // el follow inserta con el código vigente y no confirma todavía
+      const following = sql.begin(async (tx) => {
+        const result = await followsService.followHome(
+          tx as unknown as postgres.Sql,
+          follower.deviceId,
+          { code: owner.shareCode, alias: 'Mamá' },
+          NOW,
+        );
+        expect(result.kind).toBe('followed');
+        followed.open();
+        await release.opened;
+      });
+      await followed.opened;
+      // regenerar espera el candado de la fila hasta que el follow confirme
+      const regenerating = regenerateShareCode(sql, owner.homeId, () => 'QQQQQQQ4');
+      await waitForLockWait('share_code');
+      release.open();
+      await following;
+
+      expect(await regenerating).toBe('QQQQQQQ4');
+      expect(await followCount()).toBe(0);
     });
   });
 

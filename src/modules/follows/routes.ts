@@ -1,29 +1,12 @@
 import { createRoute, z } from '@hono/zod-openapi';
-import { aliasSchema, homeStatusSchema } from '../../domain/homes/schema';
+import { aliasSchema, homeStatusSchema, shareCodeInputSchema } from '../../domain/homes/schema';
 import { deviceAuth, SECURITY } from '../../middleware/device-auth';
 import { internalError, jsonError, rateLimitedError } from '../../middleware/errors';
 import { requireJsonBody } from '../../middleware/json-body';
 
-/** Tope de casas que sigue un dispositivo (A-036). */
-export const MAX_FOLLOWS = 20;
-
-// El alfabeto de `generateShareCode` (sin 0, 1, I, L ni O). Se pasa a mayúsculas **antes** de
-// validar, así que un código en minúsculas se acepta; el OpenAPI declara el patrón en mayúsculas.
-const codeSchema = z
-  .preprocess(
-    (value) => (typeof value === 'string' ? value.toUpperCase() : value),
-    z.string().regex(/^[2-9A-HJKMNP-Z]{8}$/),
-  )
-  .openapi({
-    type: 'string',
-    pattern: '^[2-9A-HJKMNP-Z]{8}$',
-    description: 'Código de la casa, 8 caracteres. Las minúsculas se aceptan',
-    example: 'K7M2QX9P',
-  });
-
 export const followRequestSchema = z
   .object({
-    code: codeSchema,
+    code: shareCodeInputSchema,
     alias: aliasSchema.openapi({ description: 'Cómo llamo yo a esa casa' }),
   })
   .openapi('FollowRequest');

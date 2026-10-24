@@ -1,5 +1,5 @@
 import { createRoute, z } from '@hono/zod-openapi';
-import { aliasSchema as alias, homeStatusSchema } from '../../domain/homes/schema';
+import { aliasSchema as alias, homeStatusSchema, shareCodeSchema } from '../../domain/homes/schema';
 import { deviceAuth, SECURITY } from '../../middleware/device-auth';
 import { internalError, jsonError, rateLimitedError } from '../../middleware/errors';
 import { requireJsonBody } from '../../middleware/json-body';
@@ -30,7 +30,7 @@ export const createHomeRoute = createRoute({
           schema: z
             .object({
               homeId: z.uuid(),
-              shareCode: z.string().regex(/^[2-9A-HJKMNP-Z]{8}$/),
+              shareCode: shareCodeSchema,
             })
             .openapi('CreateHomeResponse'),
         },
@@ -110,9 +110,7 @@ export const regenerateShareCodeRoute = createRoute({
       description: 'El código nuevo',
       content: {
         'application/json': {
-          schema: z
-            .object({ shareCode: z.string().regex(/^[2-9A-HJKMNP-Z]{8}$/) })
-            .openapi('ShareCode'),
+          schema: z.object({ shareCode: shareCodeSchema }).openapi('ShareCode'),
         },
       },
     },
