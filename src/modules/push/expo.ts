@@ -25,7 +25,8 @@ export type PushMessage = {
   deviceId: string;
 };
 
-export type SendResult = { deviceId: string; ticketId?: string; error?: string };
+/** `to` es el token al que se mandó: sirve para borrarlo solo si el dispositivo no lo cambió. */
+export type SendResult = { deviceId: string; to: string; ticketId?: string; error?: string };
 
 export type Receipt = {
   status: 'ok' | 'error';
@@ -36,12 +37,14 @@ export type Receipt = {
 
 export type ExpoOptions = { fetch: typeof fetch; accessToken?: string };
 
-type ExpoTicket =
-  | { status: 'ok'; id: string }
-  | { status: 'error'; message?: string; details?: { error?: string } };
-type ExpoReceipt =
-  | { status: 'ok' }
-  | { status: 'error'; message?: string; details?: { error?: string } };
+const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null;
+
+/** El código de un ticket o recibo con error: `details.error`, si no `message`, si no `error`. */
+function errorCode(item: Record<string, unknown>): string {
+  const details = item.details;
+  if (isObject(details) && typeof details.error === 'string') return details.error;
+  return typeof item.message === 'string' ? item.message : 'error';
+}
 
 function headers(accessToken: string | undefined): Record<string, string> {
   return {
@@ -68,7 +71,10 @@ type Reply = { ok: true; body: unknown } | { ok: false; error: string };
 async function post(url: string, payload: unknown, opts: ExpoOptions): Promise<Reply> {
   let res: Response;
   try {
-    res = await opts.fetch(url, {
+    // Se saca de `opts` para llamarla sin `this`: el `fetch` global de Workers lanza "Illegal
+    // invocation" si se invoca como método de otro objeto.
+    const doFetch = opts.fetch;
+    res = await doFetch(url, {
       method: 'POST',
       headers: headers(opts.accessToken),
       body: JSON.stringify(payload),
@@ -100,19 +106,24 @@ export async function sendPushes(
     const tickets = reply.ok ? (reply.body as { data?: unknown } | null)?.data : undefined;
     if (!reply.ok || !Array.isArray(tickets) || tickets.length !== group.length) {
       const error = reply.ok ? 'bad_response' : reply.error;
-      for (const m of group) results.push({ deviceId: m.deviceId, error });
+      for (const m of group) results.push({ deviceId: m.deviceId, to: m.to, error });
       continue;
     }
     group.forEach((m, i) => {
-      const ticket = tickets[i] as ExpoTicket;
-      if (ticket.status === 'ok' && typeof ticket.id === 'string') {
-        results.push({ deviceId: m.deviceId, ticketId: ticket.id });
+      const ticket: unknown = tickets[i];
+      const base = { deviceId: m.deviceId, to: m.to };
+      if (!isObject(ticket)) {
+        results.push({ ...base, error: 'bad_response' });
+      } else if (ticket.status === 'ok') {
+        results.push(
+          typeof ticket.id === 'string'
+            ? { ...base, ticketId: ticket.id }
+            : { ...base, error: 'bad_response' },
+        );
+      } else if (ticket.status === 'error') {
+        results.push({ ...base, error: errorCode(ticket) });
       } else {
-        const t = ticket as Extract<ExpoTicket, { status: 'error' }>;
-        results.push({
-          deviceId: m.deviceId,
-          error: t.details?.error ?? t.message ?? 'error',
-        });
+        results.push({ ...base, error: 'bad_response' });
       }
     });
   }
@@ -127,17 +138,20 @@ export async function getReceipts(
   for (const group of chunks(ids, RECEIPTS_CHUNK)) {
     const reply = await post(RECEIPTS_URL, { ids: group }, opts);
     const data = reply.ok ? (reply.body as { data?: unknown } | null)?.data : undefined;
-    if (!reply.ok || typeof data !== 'object' || data === null) {
+    if (!reply.ok || !isObject(data) || Array.isArray(data)) {
       const error = reply.ok ? 'bad_response' : reply.error;
       for (const id of group) receipts[id] = { status: 'error', error, retry: true };
       continue;
     }
     // Un id que no viene en la respuesta no tiene recibo todavía (o Expo ya lo olvidó): se omite.
-    for (const [id, raw] of Object.entries(data as Record<string, ExpoReceipt>)) {
-      if (raw.status === 'ok') {
+    // Un recibo que no se entiende se marca para reintentar, no se descarta.
+    for (const [id, raw] of Object.entries(data)) {
+      if (isObject(raw) && raw.status === 'ok') {
         receipts[id] = { status: 'ok' };
+      } else if (isObject(raw) && raw.status === 'error') {
+        receipts[id] = { status: 'error', error: errorCode(raw) };
       } else {
-        receipts[id] = { status: 'error', error: raw.details?.error ?? raw.message ?? 'error' };
+        receipts[id] = { status: 'error', error: 'bad_response', retry: true };
       }
     }
   }

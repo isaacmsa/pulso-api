@@ -5,6 +5,7 @@ import {
   clearPushTokens,
   processReceipts,
   RECEIPT_DELAY_MS,
+  RECEIPT_TTL_MS,
   recordSendResults,
   saveTickets,
   takeDueTickets,
@@ -92,7 +93,7 @@ describe('tickets y recibos de Expo Push', () => {
     await saveTickets(sql, [{ ticketId: 'reciente', deviceId: d }], NOW - RECEIPT_DELAY_MS + 1);
     const { impl, calls } = receiptsFetch({});
     const result = await processReceipts(counted.sql, impl, NOW);
-    expect(result).toEqual({ read: 0, cleared: 0, retried: 0 });
+    expect(result).toEqual({ read: 0, cleared: 0, retried: 0, expired: 0, errors: {} });
     expect(calls).toHaveLength(0);
     expect(queries).toBe(1);
     expect((await storedTickets()).map((t) => t.ticket_id)).toEqual(['reciente']);
@@ -104,7 +105,7 @@ describe('tickets y recibos de Expo Push', () => {
     await saveTickets(sql, [{ ticketId: 'vence', deviceId: d }], NOW - RECEIPT_DELAY_MS);
     await saveTickets(sql, [{ ticketId: 'espera', deviceId: d }], NOW);
     expect(await takeDueTickets(sql, NOW - RECEIPT_DELAY_MS)).toEqual([
-      { ticketId: 'vence', deviceId: d },
+      { ticketId: 'vence', deviceId: d, createdAt: NOW - RECEIPT_DELAY_MS },
     ]);
     expect((await storedTickets()).map((t) => t.ticket_id)).toEqual(['espera']);
   });
@@ -127,7 +128,11 @@ describe('tickets y recibos de Expo Push', () => {
           })) as unknown as typeof fetch,
       },
     );
-    expect(await recordSendResults(counted.sql, results, NOW)).toEqual({ saved: 1, cleared: 1 });
+    expect(await recordSendResults(counted.sql, results, NOW)).toEqual({
+      saved: 1,
+      cleared: 1,
+      errors: {},
+    });
     expect(queries).toBe(2);
     expect(await tokenOf(dead)).toBeNull();
     expect(await tokenOf(alive)).toBe('ExponentPushToken[vivo]');
@@ -150,7 +155,7 @@ describe('tickets y recibos de Expo Push', () => {
       't-alive': { status: 'ok' },
     });
     const result = await processReceipts(counted.sql, impl, NOW, 'secreto');
-    expect(result).toEqual({ read: 2, cleared: 1, retried: 0 });
+    expect(result).toEqual({ read: 2, cleared: 1, retried: 0, expired: 0, errors: {} });
     expect(queries).toBe(2);
     expect(calls).toHaveLength(1);
     expect(await tokenOf(dead)).toBeNull();
@@ -164,7 +169,13 @@ describe('tickets y recibos de Expo Push', () => {
     const { impl } = receiptsFetch({
       t: { status: 'error', message: 'x', details: { error: 'MessageRateExceeded' } },
     });
-    expect(await processReceipts(sql, impl, NOW)).toEqual({ read: 1, cleared: 0, retried: 0 });
+    expect(await processReceipts(sql, impl, NOW)).toEqual({
+      read: 1,
+      cleared: 0,
+      retried: 0,
+      expired: 0,
+      errors: { MessageRateExceeded: 1 },
+    });
     expect(await tokenOf(d)).not.toBeNull();
     expect(await storedTickets()).toEqual([]);
   });
@@ -184,27 +195,109 @@ describe('tickets y recibos de Expo Push', () => {
       read: 1500,
       cleared: 0,
       retried: 0,
+      expired: 0,
+      errors: {},
     });
     expect(calls.map((c) => c.length)).toEqual([1000, 500]);
     expect(queries).toBe(1);
   });
 
-  it('si Expo no responde, los tickets vuelven a la tabla para la próxima vuelta', async () => {
+  it('si Expo no responde, los tickets vuelven a la tabla con su hora original', async () => {
     const d = await phone();
-    await saveTickets(sql, [{ ticketId: 't', deviceId: d }], NOW - RECEIPT_DELAY_MS - 5);
+    const createdAt = NOW - RECEIPT_DELAY_MS - 5;
+    await saveTickets(sql, [{ ticketId: 't', deviceId: d }], createdAt);
     const { impl } = receiptsFetch('network-error');
-    expect(await processReceipts(sql, impl, NOW)).toEqual({ read: 1, cleared: 0, retried: 1 });
+    expect(await processReceipts(sql, impl, NOW)).toEqual({
+      read: 1,
+      cleared: 0,
+      retried: 1,
+      expired: 0,
+      errors: { network_error: 1 },
+    });
     expect((await storedTickets()).map((t) => [t.ticket_id, t.created_at])).toEqual([
-      ['t', String(NOW)],
+      ['t', String(createdAt)],
     ]);
-    // pasados otros 15 min, se leen de nuevo
+    // en la próxima vuelta ya está vencido otra vez y se lee
     const ok = receiptsFetch({ t: { status: 'ok' } });
-    expect(await processReceipts(sql, ok.impl, NOW + RECEIPT_DELAY_MS)).toEqual({
+    expect(await processReceipts(sql, ok.impl, NOW + 1)).toEqual({
       read: 1,
       cleared: 0,
       retried: 0,
+      expired: 0,
+      errors: {},
     });
     expect(await storedTickets()).toEqual([]);
+  });
+
+  it('un recibo nulo no pierde el ticket: vuelve a la tabla', async () => {
+    const d = await phone();
+    await saveTickets(sql, [{ ticketId: 't', deviceId: d }], NOW - RECEIPT_DELAY_MS);
+    const { impl } = receiptsFetch({ t: null });
+    expect(await processReceipts(sql, impl, NOW)).toMatchObject({
+      read: 1,
+      retried: 1,
+      errors: { bad_response: 1 },
+    });
+    expect((await storedTickets()).map((t) => t.ticket_id)).toEqual(['t']);
+  });
+
+  it('los tickets de más de 24 h se descartan sin llamar a Expo', async () => {
+    const d = await phone();
+    await saveTickets(sql, [{ ticketId: 'viejo', deviceId: d }], NOW - RECEIPT_TTL_MS - 1);
+    await saveTickets(sql, [{ ticketId: 'justo', deviceId: d }], NOW - RECEIPT_TTL_MS);
+    const { impl, calls } = receiptsFetch({ justo: { status: 'ok' } });
+    expect(await processReceipts(sql, impl, NOW)).toEqual({
+      read: 2,
+      cleared: 0,
+      retried: 0,
+      expired: 1,
+      errors: {},
+    });
+    expect(calls).toEqual([['justo']]);
+    expect(await storedTickets()).toEqual([]);
+  });
+
+  it('solo expiran los tickets: con un 401 permanente se reintenta hasta las 24 h', async () => {
+    const d = await phone();
+    await saveTickets(sql, [{ ticketId: 't', deviceId: d }], NOW - RECEIPT_TTL_MS + 1000);
+    const denied = (async () =>
+      json({ errors: [{ code: 'UNAUTHORIZED' }] }, 401)) as unknown as typeof fetch;
+    expect(await processReceipts(sql, denied, NOW)).toMatchObject({
+      retried: 1,
+      errors: { UNAUTHORIZED: 1 },
+    });
+    expect(await processReceipts(sql, denied, NOW + 2000)).toMatchObject({
+      read: 1,
+      expired: 1,
+      retried: 0,
+    });
+    expect(await storedTickets()).toEqual([]);
+  });
+
+  it('el ticket con DeviceNotRegistered no borra un token que ya cambió', async () => {
+    const d = await phone('ExponentPushToken[nuevo]');
+    const results = [{ deviceId: d, to: 'ExponentPushToken[viejo]', error: 'DeviceNotRegistered' }];
+    expect(await recordSendResults(sql, results, NOW)).toEqual({
+      saved: 0,
+      cleared: 0,
+      errors: {},
+    });
+    expect(await tokenOf(d)).toBe('ExponentPushToken[nuevo]');
+  });
+
+  it('recordSendResults cuenta los errores por código, sin tokens', async () => {
+    const d = await phone('ExponentPushToken[a]');
+    const results = [
+      { deviceId: d, to: 'ExponentPushToken[a]', error: 'MessageRateExceeded' },
+      { deviceId: d, to: 'ExponentPushToken[a]', error: 'MessageRateExceeded' },
+      { deviceId: d, to: 'ExponentPushToken[a]', error: 'network_error' },
+      { deviceId: d, to: 'ExponentPushToken[a]', ticketId: 'ok' },
+    ];
+    expect(await recordSendResults(sql, results, NOW)).toEqual({
+      saved: 1,
+      cleared: 0,
+      errors: { MessageRateExceeded: 2, network_error: 1 },
+    });
   });
 
   it('un ticket de un dispositivo borrado se va con él', async () => {

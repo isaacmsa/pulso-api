@@ -4,26 +4,35 @@ import { getReceipts, type SendResult } from './expo';
 /** Expo deja leer el recibo unos 15 min después del envío (y lo guarda 24 h). */
 export const RECEIPT_DELAY_MS = 15 * 60_000;
 
+/** Expo guarda los recibos 24 h: pasado ese plazo, leer un ticket ya no sirve. */
+export const RECEIPT_TTL_MS = 24 * 60 * 60_000;
+
 export type Ticket = { ticketId: string; deviceId: string };
+export type StoredTicket = Ticket & { createdAt: number };
 
 const DEVICE_NOT_REGISTERED = 'DeviceNotRegistered';
 
 /**
  * Guarda los tickets de un envío, en UNA consulta. Los pasa como un `jsonb` (`JSON.stringify`,
  * no `sql.json()`: ver "Trampas conocidas" de AGENTS.md). Un `ticket_id` repetido se ignora.
+ * `created_at` es `now`, salvo en un ticket que vuelve con su `createdAt` original.
  */
 export async function saveTickets(
   sql: postgres.Sql,
-  tickets: readonly Ticket[],
+  tickets: readonly (Ticket & { createdAt?: number })[],
   now: number,
 ): Promise<void> {
   if (tickets.length === 0) return;
   await sql`
     INSERT INTO app.push_tickets (ticket_id, device_id, created_at)
-    SELECT t.ticket_id, t.device_id, ${now}::bigint
+    SELECT t.ticket_id, t.device_id, t.created_at
     FROM jsonb_to_recordset(${JSON.stringify(
-      tickets.map((t) => ({ ticket_id: t.ticketId, device_id: t.deviceId })),
-    )}::jsonb) AS t(ticket_id text, device_id uuid)
+      tickets.map((t) => ({
+        ticket_id: t.ticketId,
+        device_id: t.deviceId,
+        created_at: t.createdAt ?? now,
+      })),
+    )}::jsonb) AS t(ticket_id text, device_id uuid, created_at bigint)
     ON CONFLICT (ticket_id) DO NOTHING`;
 }
 
@@ -41,59 +50,101 @@ export async function clearPushTokens(
 }
 
 /**
+ * Borra el `push_token` solo donde todavía es el token al que se mandó (`to`), en UNA consulta:
+ * si el teléfono se registró con otro token después del envío, el nuevo se queda.
+ */
+export async function clearStaleTokens(
+  sql: postgres.Sql,
+  sent: readonly { deviceId: string; to: string }[],
+): Promise<number> {
+  if (sent.length === 0) return 0;
+  const rows = await sql`
+    UPDATE app.devices d SET push_token = NULL
+    FROM jsonb_to_recordset(${JSON.stringify(
+      sent.map((s) => ({ device_id: s.deviceId, token: s.to })),
+    )}::jsonb) AS s(device_id uuid, token text)
+    WHERE d.id = s.device_id AND d.push_token = s.token
+    RETURNING d.id`;
+  return rows.length;
+}
+
+/** Cuenta cuántas veces sale cada código de error (nunca tokens ni ids). */
+function countErrors(codes: Iterable<string | undefined>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const code of codes) {
+    if (code && code !== DEVICE_NOT_REGISTERED) counts[code] = (counts[code] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
  * Toma (y borra) los tickets creados en `olderThan` o antes, en UNA consulta
  * (`DELETE … RETURNING`). Quien los toma es responsable de ellos: si no los puede procesar, tiene
  * que volver a guardarlos (`processReceipts` lo hace).
  */
-export async function takeDueTickets(sql: postgres.Sql, olderThan: number): Promise<Ticket[]> {
-  const rows = await sql<{ ticket_id: string; device_id: string }[]>`
+export async function takeDueTickets(
+  sql: postgres.Sql,
+  olderThan: number,
+): Promise<StoredTicket[]> {
+  const rows = await sql<{ ticket_id: string; device_id: string; created_at: string }[]>`
     DELETE FROM app.push_tickets WHERE created_at <= ${olderThan}::bigint
-    RETURNING ticket_id, device_id`;
-  return rows.map((r) => ({ ticketId: r.ticket_id, deviceId: r.device_id }));
+    RETURNING ticket_id, device_id, created_at`;
+  return rows.map((r) => ({
+    ticketId: r.ticket_id,
+    deviceId: r.device_id,
+    createdAt: Number(r.created_at),
+  }));
 }
 
 /**
  * Lo que hay que hacer con el resultado de `sendPushes`, en 2 consultas como máximo: guardar los
  * tickets que Expo aceptó y borrar el token de los dispositivos a los que respondió
- * `DeviceNotRegistered` en el propio ticket. Los demás errores no se reintentan (el push de un
- * corte ya quedó marcado, regla 11).
+ * `DeviceNotRegistered` en el propio ticket (solo si el token sigue siendo al que se mandó). Los
+ * demás errores no se reintentan (el push de un corte ya quedó marcado, regla 11): se devuelven
+ * contados por código en `errors` para que quien llama los registre.
  */
 export async function recordSendResults(
   sql: postgres.Sql,
   results: readonly SendResult[],
   now: number,
-): Promise<{ saved: number; cleared: number }> {
+): Promise<{ saved: number; cleared: number; errors: Record<string, number> }> {
   const tickets = results.flatMap((r) =>
     r.ticketId ? [{ ticketId: r.ticketId, deviceId: r.deviceId }] : [],
   );
-  const dead = results.filter((r) => r.error === DEVICE_NOT_REGISTERED).map((r) => r.deviceId);
+  const dead = results.filter((r) => r.error === DEVICE_NOT_REGISTERED);
   await saveTickets(sql, tickets, now);
-  const cleared = await clearPushTokens(sql, dead);
-  return { saved: tickets.length, cleared };
+  const cleared = await clearStaleTokens(sql, dead);
+  return { saved: tickets.length, cleared, errors: countErrors(results.map((r) => r.error)) };
 }
 
 export type ReceiptsResult = {
-  /** Tickets que se tomaron de la tabla. */
+  /** Tickets que se tomaron de la tabla (incluye los vencidos de 24 h). */
   read: number;
   /** Tokens borrados por `DeviceNotRegistered` en el recibo. */
   cleared: number;
-  /** Tickets devueltos a la tabla porque Expo no respondió (se leen en la próxima vuelta). */
+  /** Tickets devueltos a la tabla porque Expo no respondió o respondió algo ilegible. */
   retried: number;
+  /** Tickets de más de 24 h: se descartaron sin preguntar a Expo. */
+  expired: number;
+  /** Errores de recibo (y de la llamada) por código, salvo `DeviceNotRegistered`. Sin tokens. */
+  errors: Record<string, number>;
 };
 
 /**
  * Lee los recibos de los tickets de hace 15 min o más y borra los `push_token` con
- * `DeviceNotRegistered`. Lo llama el cron `sweep` (tarea 3.3).
+ * `DeviceNotRegistered`. Lo llama el cron `sweep` (tarea 3.3), que registra `errors`.
  *
- * Consultas: 1 (`takeDueTickets`) + 1 si hay tokens que borrar. Más 1 solo si Expo falló en
- * algún grupo. Sin tickets vencidos, es 1 sola y no se llama a Expo.
+ * Consultas: 1 (`takeDueTickets`) + 1 si hay tokens que borrar. Más 1 solo si hay tickets que
+ * reintentar. Sin tickets vencidos, es 1 sola y no se llama a Expo.
  *
  * Los tickets se borran al tomarlos (`DELETE … RETURNING`) y no después de leer los recibos,
- * para no gastar una consulta más. Si `getReceipts` falla en un grupo, esos tickets se vuelven a
- * guardar con la hora de ahora (esperan otros 15 min; Expo guarda los recibos 24 h). Si el
- * Worker muere entre el `DELETE` y el `INSERT` se pierden esos tickets: lo único que se pierde es
- * limpiar a tiempo un token muerto, que el siguiente push vuelve a descubrir. Un ticket cuyo
- * recibo Expo todavía no tiene (o ya olvidó) se descarta igual.
+ * para no gastar una consulta más. Si `getReceipts` falla en un grupo (o devuelve un recibo
+ * ilegible), esos tickets se vuelven a guardar **con su `created_at` original**: el siguiente
+ * `sweep` los lee otra vez, y cuando pasan de 24 h (lo que Expo guarda los recibos) se descartan
+ * como `expired`, así un error permanente (p. ej. un 401) no los deja dando vueltas para siempre.
+ * Si el Worker muere entre el `DELETE` y el `INSERT` se pierden esos tickets: lo único que se
+ * pierde es limpiar a tiempo un token muerto, que el siguiente push vuelve a descubrir. Un ticket
+ * cuyo recibo Expo todavía no tiene (o ya olvidó) se descarta igual.
  */
 export async function processReceipts(
   sql: postgres.Sql,
@@ -102,16 +153,20 @@ export async function processReceipts(
   accessToken?: string,
 ): Promise<ReceiptsResult> {
   const due = await takeDueTickets(sql, now - RECEIPT_DELAY_MS);
-  if (due.length === 0) return { read: 0, cleared: 0, retried: 0 };
+  if (due.length === 0) return { read: 0, cleared: 0, retried: 0, expired: 0, errors: {} };
+
+  const live = due.filter((t) => t.createdAt >= now - RECEIPT_TTL_MS);
+  const expired = due.length - live.length;
+  if (live.length === 0) return { read: due.length, cleared: 0, retried: 0, expired, errors: {} };
 
   const receipts = await getReceipts(
-    due.map((t) => t.ticketId),
+    live.map((t) => t.ticketId),
     { fetch: fetchImpl, ...(accessToken ? { accessToken } : {}) },
   );
 
   const dead = new Set<string>();
-  const retry: Ticket[] = [];
-  for (const ticket of due) {
+  const retry: StoredTicket[] = [];
+  for (const ticket of live) {
     const receipt = receipts[ticket.ticketId];
     if (receipt?.retry) retry.push(ticket);
     else if (receipt?.error === DEVICE_NOT_REGISTERED) dead.add(ticket.deviceId);
@@ -119,5 +174,11 @@ export async function processReceipts(
 
   const cleared = await clearPushTokens(sql, [...dead]);
   await saveTickets(sql, retry, now);
-  return { read: due.length, cleared, retried: retry.length };
+  return {
+    read: due.length,
+    cleared,
+    retried: retry.length,
+    expired,
+    errors: countErrors(live.map((t) => receipts[t.ticketId]?.error)),
+  };
 }

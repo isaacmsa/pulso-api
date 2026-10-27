@@ -50,7 +50,11 @@ describe('sendPushes', () => {
     expect(calls.map((c) => (c.body as unknown[]).length)).toEqual([100, 100, 50]);
     expect(calls.every((c) => c.url === SEND_URL)).toBe(true);
     expect(results).toHaveLength(250);
-    expect(results[249]).toEqual({ deviceId: 'device-249', ticketId: 't-ExponentPushToken[249]' });
+    expect(results[249]).toEqual({
+      deviceId: 'device-249',
+      to: 'ExponentPushToken[249]',
+      ticketId: 't-ExponentPushToken[249]',
+    });
   });
 
   it('manda el token de acceso solo si existe', async () => {
@@ -103,10 +107,53 @@ describe('sendPushes', () => {
       }),
     );
     expect(await sendPushes(messages(3), { fetch: impl })).toEqual([
-      { deviceId: 'device-0', ticketId: 'a' },
-      { deviceId: 'device-1', error: 'DeviceNotRegistered' },
-      { deviceId: 'device-2', error: 'algo falló' },
+      { deviceId: 'device-0', to: 'ExponentPushToken[0]', ticketId: 'a' },
+      { deviceId: 'device-1', to: 'ExponentPushToken[1]', error: 'DeviceNotRegistered' },
+      { deviceId: 'device-2', to: 'ExponentPushToken[2]', error: 'algo falló' },
     ]);
+  });
+
+  it('un elemento mal formado falla solo su mensaje con bad_response, sin lanzar', async () => {
+    const { impl } = fakeFetch(() =>
+      json({
+        data: [
+          null,
+          { id: null },
+          'ok',
+          { status: 'ok' },
+          { status: 'error', message: 7, details: 'x' },
+          { status: 'ok', id: 'bueno' },
+        ],
+      }),
+    );
+    const results = await sendPushes(messages(6), { fetch: impl });
+    expect(results.map((r) => [r.error, r.ticketId])).toEqual([
+      ['bad_response', undefined],
+      ['bad_response', undefined],
+      ['bad_response', undefined],
+      ['bad_response', undefined],
+      ['error', undefined],
+      [undefined, 'bueno'],
+    ]);
+  });
+
+  it('un data que no es una lista falla el grupo con bad_response', async () => {
+    const { impl } = fakeFetch(() => json({ data: { a: 1 } }));
+    const results = await sendPushes(messages(2), { fetch: impl });
+    expect(results.map((r) => r.error)).toEqual(['bad_response', 'bad_response']);
+  });
+
+  it('llama a fetch sin `this` (el fetch global de Workers lanza Illegal invocation)', async () => {
+    const strictFetch = async function (this: unknown, _url: unknown, init?: RequestInit) {
+      if (this !== undefined) throw new TypeError('Illegal invocation');
+      const body = JSON.parse(String(init?.body)) as unknown;
+      return Array.isArray(body)
+        ? json({ data: body.map(() => ({ status: 'ok', id: 'x' })) })
+        : json({ data: { x: { status: 'ok' } } });
+    } as unknown as typeof fetch;
+    const sent = await sendPushes(messages(1), { fetch: strictFetch, accessToken: 't' });
+    expect(sent[0]?.ticketId).toBe('x');
+    expect(await getReceipts(['x'], { fetch: strictFetch })).toEqual({ x: { status: 'ok' } });
   });
 
   it('un error de red de Expo no lanza: devuelve los errores por mensaje', async () => {
@@ -183,6 +230,26 @@ describe('getReceipts', () => {
     expect(receipts['t-0']).toEqual({ status: 'error', error: 'network_error', retry: true });
     expect(receipts['t-999']?.retry).toBe(true);
     expect(receipts['t-1000']).toEqual({ status: 'ok' });
+  });
+
+  it('un recibo mal formado se marca para reintentar, no se descarta ni lanza', async () => {
+    const { impl } = fakeFetch(() =>
+      json({
+        data: { a: null, b: 'x', c: { status: 'raro' }, d: { status: 'ok' } },
+      }),
+    );
+    const receipts = await getReceipts(['a', 'b', 'c', 'd'], { fetch: impl });
+    const bad = { status: 'error', error: 'bad_response', retry: true };
+    expect(receipts).toEqual({ a: bad, b: bad, c: bad, d: { status: 'ok' } });
+  });
+
+  it('un data que es una lista (o no existe) falla el grupo para reintentar', async () => {
+    for (const data of [[{ status: 'ok' }], null, undefined, 'x']) {
+      const { impl } = fakeFetch(() => json({ data }));
+      expect(await getReceipts(['a'], { fetch: impl })).toEqual({
+        a: { status: 'error', error: 'bad_response', retry: true },
+      });
+    }
   });
 
   it('no llama a Expo sin ids', async () => {
