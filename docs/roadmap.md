@@ -40,8 +40,8 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 
 ## Fase 3 · Push y familia (S5, ~6 h)
 
-- [ ] Módulo `push`: envío a Expo Push, `push_tickets`, recibos y limpieza de tokens con `DeviceNotRegistered` (2 h)
-- [ ] Reglas de `docs/api.md` (inicio, regreso, resumen tardío, confirmación), en el cron `sweep` y al cerrar un corte, sin repetir avisos (1,5 h)
+- [x] Módulo `push`: envío a Expo Push, `push_tickets`, recibos y limpieza de tokens con `DeviceNotRegistered` (2 h)
+- [x] Reglas de `docs/api.md` (inicio, regreso, resumen tardío, confirmación), en el cron `sweep` y al cerrar un corte, sin repetir avisos (1,5 h)
 - [x] `POST/GET/DELETE /v1/follows` y `POST /v1/homes/me/share-code` (1,5 h)
 - [ ] `GET /c/:code` con caché de 30 s y `/.well-known/assetlinks.json` (1 h)
 

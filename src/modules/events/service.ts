@@ -6,9 +6,13 @@ import { reconcileOutages } from '../../domain/detection/reconcile';
 import type { EventBatch } from '../../domain/events/schema';
 import type { HomeStatus } from '../../domain/homes/schema';
 import type { AuthedDevice } from '../../env';
+import type { Notice } from '../push/notices';
 import * as repo from './repo';
 
 export type IngestResponse = { accepted: number; duplicated: number; status: HomeStatus };
+
+/** Lo que responde la ruta y los avisos que `apply_outages` dejó marcados para mandar. */
+export type IngestOutcome = { response: IngestResponse; notify: Notice[] };
 
 type HomeDevice = { id: string; homeId: string; home: NonNullable<AuthedDevice['home']> };
 
@@ -16,18 +20,20 @@ type HomeDevice = { id: string; homeId: string; home: NonNullable<AuthedDevice['
  * Guarda el lote, clasifica la ventana de la casa y aplica los cortes y el estado (docs/api.md,
  * "Qué hace POST /v1/events"). La auth (consulta 1) ya corrió; aquí van la 2 (`ingest_batch`) y,
  * solo si `ingest_batch` devolvió una ventana, la 3 (`apply_outages`): cuando entró algún evento
- * nuevo o quedó algo sin clasificar de un lote anterior (A-024).
+ * nuevo o quedó algo sin clasificar de un lote anterior (A-024). `apply_outages` también marca los
+ * avisos de los cortes que se cierran y los devuelve en `notify`; mandarlos es cosa de la ruta.
  */
 export async function ingestEvents(
   sql: postgres.Sql,
   device: HomeDevice,
   batch: EventBatch,
   receivedAt: number,
-): Promise<IngestResponse> {
+): Promise<IngestOutcome> {
   const { state, since, alias, openOutageStart } = device.home;
   // estado de la auth: solo se responde tal cual si no entra ningún evento nuevo
   const current: HomeStatus = { state, since, alias, openOutageStart };
-  if (batch.events.length === 0) return { accepted: 0, duplicated: 0, status: current };
+  const nothing = (response: IngestResponse): IngestOutcome => ({ response, notify: [] });
+  if (batch.events.length === 0) return nothing({ accepted: 0, duplicated: 0, status: current });
 
   const ingested = await repo.ingestBatch(sql, {
     deviceId: device.id,
@@ -39,7 +45,7 @@ export async function ingestEvents(
   const { accepted, duplicated } = ingested;
   // Sin ventana no hay nada que clasificar: un reenvío normal (2 consultas). Con `accepted = 0`
   // llega ventana solo si un apply_outages anterior se perdió o lo rechazó la revisión (A-024).
-  if (ingested.window.length === 0) return { accepted, duplicated, status: current };
+  if (ingested.window.length === 0) return nothing({ accepted, duplicated, status: current });
 
   // para ver en los logs de staging si alguna ventana crece de más (10 ms de CPU); sin el token
   console.log('clasificación', { homeId: device.homeId, window: ingested.window.length });
@@ -69,5 +75,5 @@ export async function ingestEvents(
       revision: ingested.revision,
     });
   }
-  return { accepted, duplicated, status: applied.status };
+  return { response: { accepted, duplicated, status: applied.status }, notify: applied.notify };
 }

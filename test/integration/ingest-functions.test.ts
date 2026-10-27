@@ -416,6 +416,7 @@ describe('funciones de ingesta', () => {
     expect(result).toEqual({
       applied: true,
       status: { state: 'sin_luz', since: opened.start, alias: 'Casa', openOutageStart: at(200) },
+      notify: [], // nadie a quien avisar: sin seguidores y el teléfono sin push_token
     });
     expect(await outagesOf(home.homeId)).toEqual([
       { id: existingId, ...closed, updatedAt: NOW },
@@ -452,6 +453,7 @@ describe('funciones de ingesta', () => {
     expect(result).toEqual({
       applied: false,
       status: { state: 'con_luz', since: at(0), alias: 'Casa', openOutageStart: null },
+      notify: [],
     });
     expect(await outagesOf(home.homeId)).toEqual(before);
     expect(await homeRow(home.homeId)).toEqual({ status: 'con_luz', since: at(0), revision: 2 });

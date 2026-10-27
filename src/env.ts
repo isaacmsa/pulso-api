@@ -55,5 +55,12 @@ export type AppEnv = {
     db: Db;
     /** La hora del Worker (epoch ms). `Date.now` salvo en los tests, que la fijan con `createApp`. */
     now: () => number;
+    /** El `fetch` con el que se habla con Expo Push. El global salvo en los tests (uno falso). */
+    fetch: typeof fetch;
+    /**
+     * Deja una tarea para después de la respuesta (`waitUntil`). El cliente de la base se cierra
+     * cuando terminan todas, así que la tarea puede consultar. Nunca debe rechazar.
+     */
+    defer: (task: Promise<unknown>) => void;
   };
 };

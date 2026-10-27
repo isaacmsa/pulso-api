@@ -45,7 +45,7 @@ pulso-api/
 │  │  └─ time/caracas.ts        # días y semanas en America/Caracas
 │  ├─ modules/<dominio>/        # devices, homes, events, outages, follows, push, pages
 │  │  └─ routes.ts · service.ts · repo.ts · index.ts
-│  ├─ jobs/                     # scheduled.ts despacha por cron; retention.ts (diario, ya); sweep (cada 5 min, fase 3)
+│  ├─ jobs/                     # scheduled.ts despacha por cron; retention.ts (diario); sweep.ts (cada 5 min)
 │  └─ testing/builders.ts       # snap(), report(), confirmation() para tests
 ├─ drizzle/                     # migraciones SQL generadas, incluidas las funciones de ingesta
 ├─ scripts/
@@ -56,7 +56,7 @@ pulso-api/
 │  └─ integration/              # repositorios y rutas contra PostgreSQL
 ├─ compose.dev.yaml             # PostgreSQL local, 17.11 como Supabase staging
 ├─ openapi.json                 # contrato generado y versionado
-├─ wrangler.jsonc               # local y staging (production en la fase 2), Hyperdrive, Rate Limiting; cron `retention` en staging y producción (A-042), `sweep` en la fase 3
+├─ wrangler.jsonc               # local y staging (production en la fase 2), Hyperdrive, Rate Limiting; crons `sweep` y `retention` en staging y producción (A-042)
 ├─ worker-configuration.d.ts    # tipos de Workers generados con `pnpm cf-typegen` (versionados)
 ├─ tsconfig.worker.json         # src/ contra los tipos de Workers; tsconfig.json queda para Node (tests y scripts)
 ├─ docs/
@@ -81,11 +81,12 @@ POST /v1/events (Bearer)
   → sin ventana (reenvío sin nada pendiente): listo; con ventana, también con accepted = 0 (A-024):
   → classify y reconcileOutages en el Worker (dominio puro)
   → app.apply_outages(home, revisión, cambios, estado, ahora)  (consulta 3, una transacción)
+       también marca los avisos de los cortes que se cierran y devuelve a quién avisar (A-031)
   ← { accepted, duplicated, status }
+  → si hay avisos, después de responder (ctx.waitUntil): Expo Push y push_tickets (consulta 4)
 
-cron */5 min: push de inicio · sin noticias · sin_datos · recibos de Expo Push
+cron */5 min (sweep): push de inicio · recibos de Expo Push · sin noticias y sin_datos (fase 4)
 cron diario (08:00 UTC = 4:00 a. m. en Caracas): retención
-al cerrar un corte: push de regreso a seguidores y confirmación al teléfono de la casa (ctx.waitUntil)
 ```
 
 La consulta 1 es un `UPDATE … SET last_seen_at = … WHERE token_hash = … RETURNING …`: autentica y registra el latido a la vez. El clasificador queda en TypeScript (el mismo de los tests). Solo la parte de SQL va en las funciones de PostgreSQL, y esas funciones se versionan en las migraciones.

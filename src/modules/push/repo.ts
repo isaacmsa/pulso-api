@@ -1,5 +1,7 @@
 import type postgres from 'postgres';
+import { MIN_OUTAGE_MS } from '../../domain/detection/constants';
 import { getReceipts, type SendResult } from './expo';
+import type { Notice } from './notices';
 
 /** Expo deja leer el recibo unos 15 min después del envío (y lo guarda 24 h). */
 export const RECEIPT_DELAY_MS = 15 * 60_000;
@@ -11,6 +13,72 @@ export type Ticket = { ticketId: string; deviceId: string };
 export type StoredTicket = Ticket & { createdAt: number };
 
 const DEVICE_NOT_REGISTERED = 'DeviceNotRegistered';
+
+/** A-033: el push de inicio sale solo si el servidor conoce el corte desde hace 30 min o menos. */
+export const START_PUSH_WINDOW_MS = 30 * 60_000;
+
+/**
+ * Reclama los push de inicio (docs/api.md, "Cuándo sale cada push"), en UNA consulta: marca
+ * `start_notified_at` en cada corte `abierto` de `MIN_OUTAGE_MS` o más, sin marca y conocido hace
+ * 30 min o menos (`created_at`, A-033), y devuelve los seguidores con `push_token` de esas casas.
+ *
+ * Regla 11: `UPDATE … WHERE start_notified_at IS NULL RETURNING`. Si dos `sweep` (o un `sweep` y
+ * el lote que cierra el corte) llegan a la vez, el candado de la fila hace que el segundo vuelva a
+ * evaluar el `WHERE` con la fila ya cambiada: solo uno marca, y un corte que se cerró entretanto
+ * deja de estar `abierto`. Un corte sin seguidores con token queda marcado y no devuelve nada. Un
+ * token repetido (dos registros con el mismo) recibe una sola vez.
+ */
+export async function claimStartPushes(sql: postgres.Sql, now: number): Promise<Notice[]> {
+  const rows = await sql<
+    {
+      outage_id: string;
+      home_id: string;
+      started_at: string;
+      home_alias: string;
+      device_id: string;
+      push_token: string;
+      alias: string;
+    }[]
+  >`
+    WITH claimed AS (
+      UPDATE app.outages
+      SET start_notified_at = ${now}::bigint
+      WHERE status = 'abierto'
+        AND start_notified_at IS NULL
+        AND started_at <= ${now - MIN_OUTAGE_MS}::bigint
+        AND created_at >= ${now - START_PUSH_WINDOW_MS}::bigint
+      RETURNING id, home_id, started_at
+    )
+    SELECT c.id AS outage_id, c.home_id, c.started_at, h.alias AS home_alias, t.device_id, t.push_token, t.alias
+    FROM claimed c
+    JOIN app.homes h ON h.id = c.home_id
+    JOIN LATERAL (
+      SELECT DISTINCT ON (d.push_token) d.id AS device_id, d.push_token, f.alias
+      FROM app.follows f
+      JOIN app.devices d ON d.id = f.follower_device_id
+      WHERE f.home_id = c.home_id AND d.push_token IS NOT NULL
+      ORDER BY d.push_token, f.created_at, d.id
+    ) t ON true
+    ORDER BY c.home_id, c.started_at`;
+
+  const notices = new Map<string, Notice>();
+  for (const row of rows) {
+    let notice = notices.get(row.outage_id);
+    if (!notice) {
+      notice = {
+        kind: 'start',
+        homeId: row.home_id,
+        outageStart: Number(row.started_at),
+        outageEnd: null,
+        alias: row.home_alias,
+        targets: [],
+      };
+      notices.set(row.outage_id, notice);
+    }
+    notice.targets.push({ deviceId: row.device_id, pushToken: row.push_token, alias: row.alias });
+  }
+  return [...notices.values()];
+}
 
 /**
  * Guarda los tickets de un envío, en UNA consulta. Los pasa como un `jsonb` (`JSON.stringify`,

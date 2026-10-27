@@ -101,6 +101,8 @@ export const outages = app
       endNotifiedAt: epochMs('end_notified_at'), // push de regreso enviado
       confirmAskedAt: epochMs('confirm_asked_at'), // confirmación pedida
       updatedAt: epochMs('updated_at').notNull(),
+      // A-033: cuándo lo conoció el servidor (el insert de apply_outages); NULL en las filas de antes de 0003
+      createdAt: epochMs('created_at'),
     },
     (t) => [
       check(

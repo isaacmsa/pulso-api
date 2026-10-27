@@ -429,13 +429,14 @@ describe('POST /v1/events', () => {
     queries = 0;
 
     const counted = testDb({ onQuery: () => queries++ }).sql;
-    const body = await ingestEvents(
+    const { response: body, notify } = await ingestEvents(
       counted,
       { id: deviceId, homeId, home: stale },
       { sentAt: now, diagnostics: DIAGNOSTICS, events: [snap(125, true, true)] },
       now,
     ).finally(() => counted.end());
 
+    expect(notify).toEqual([]); // nadie sigue la casa y el teléfono no tiene push_token
     expect(body).toEqual({
       accepted: 1,
       duplicated: 0,

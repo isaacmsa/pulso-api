@@ -66,7 +66,8 @@ CREATE TABLE app.outages (
   start_notified_at  bigint,                                 -- push de inicio enviado
   end_notified_at    bigint,                                 -- push de regreso enviado
   confirm_asked_at   bigint,                                 -- confirmación pedida
-  updated_at         bigint NOT NULL
+  updated_at         bigint NOT NULL,
+  created_at         bigint                                  -- cuándo lo conoció el servidor (A-033, 0003); NULL en las filas de antes
 );
 CREATE INDEX outages_home_started ON app.outages (home_id, started_at DESC);
 CREATE INDEX outages_open ON app.outages (home_id) WHERE status = 'abierto';
@@ -100,7 +101,7 @@ ALTER TABLE app.homes ENABLE ROW LEVEL SECURITY;   -- y lo mismo en las otras ci
 - **Horas en `bigint` (epoch ms)**, igual que en el contrato y en el clasificador (A-005). Para mirar a mano: `to_timestamp(at / 1000.0) AT TIME ZONE 'America/Caracas'`.
 - **`payload` en `jsonb`** (A-004): los campos del snapshot van a cambiar con la prueba técnica. Zod valida la forma en la entrada, así que agregar un campo no exige migración.
 - **El estado de la casa vive materializado** en `homes.status`. La página pública lee una fila, y el push compara el estado anterior con el nuevo para avisar solo en las transiciones.
-- **Los avisos quedan marcados en `outages`** (`start_notified_at`, `end_notified_at`, `confirm_asked_at`) con un `UPDATE … WHERE start_notified_at IS NULL RETURNING`, antes de enviar. Solo quien gana esa actualización manda el push, así que no se repite aunque el cron corra dos veces.
+- **Los avisos quedan marcados en `outages`** (`start_notified_at`, `end_notified_at`, `confirm_asked_at`) con un `UPDATE … WHERE start_notified_at IS NULL RETURNING`, antes de enviar. Solo quien gana esa actualización manda el push, así que no se repite aunque el cron corra dos veces. El inicio lo marca el cron `sweep`; el resto, `apply_outages` (ver abajo y `docs/api.md`, "Cuándo sale cada push"). `created_at` dice desde cuándo lo conoce el servidor: el push de inicio sale solo si es de hace 30 min o menos (A-033).
 - **La ingesta va en funciones de PostgreSQL** (A-004), para gastar pocas consultas de Hyperdrive y que cada paso sea atómico. Están en la sección siguiente. El clasificador no está en SQL: corre en el Worker entre las dos llamadas.
 
 ## Funciones de ingesta
@@ -114,8 +115,11 @@ app.ingest_batch(p_device_id uuid, p_home_id uuid, p_events jsonb,
 
 app.apply_outages(p_home_id uuid, p_revision bigint, p_changes jsonb,
                   p_status jsonb, p_now bigint) RETURNS jsonb
--- { applied, status: { state, since, alias, openOutageStart } }
+-- { applied, status: { state, since, alias, openOutageStart },
+--   notify: [{ kind, homeId, outageStart, outageEnd, alias, targets: [{ deviceId, pushToken, alias }] }] }
 ```
+
+`apply_outages` se reemplazó en `drizzle/0003_push_notifications.sql` (`CREATE OR REPLACE`, misma firma y mismos permisos), que también agrega `outages.created_at`.
 
 ```sql
 app.replace_share_code(p_home_id uuid, p_code text) RETURNS text
@@ -161,6 +165,15 @@ Empezar en un snapshot `powered` reproduce el estado exacto del clasificador: ar
 - `p_status` es `{ state, since }` (de `deriveHomeStatus`) o `null`. Si cambia algo, se guarda en `homes.status` y `status_since`.
 - `status.openOutageStart` es el `started_at` del corte `abierto` más reciente, o `null`.
 
+Y marca los avisos (A-031 a A-034, regla 11), en la misma transacción:
+
+- Antes de aplicar, anota qué cortes guardados pasan a `cerrado` y cuáles a `descartado` en esta llamada (solo los que cambian de estado). Un insert que ya llega `cerrado` cuenta como que se cierra.
+- Cada insert sella `created_at = p_now`.
+- **A-032:** un corte que esta llamada deja `descartado` y se solapa (con su intervalo de antes) con un insert le pasa al insert sus tres marcas y su `created_at`; si se solapa con varios, al de `started_at` más cercano. Si varios van al mismo insert, basta con que uno tenga la marca, y `created_at` es el más viejo (`NULL` si alguno es de antes de `0003`). El viejo queda con `start_notified_at` y `end_notified_at` puestos, para que no avise nada aunque una reconciliación posterior lo reviva.
+- Marca `end_notified_at` en cada corte que deja `cerrado`, y en cada uno que deja `descartado` con `start_notified_at` puesto y que no le pasó sus marcas a otro, si no la tenía. Eso da `return` (con inicio), `late` (sin inicio) o `return_plain` (descartado, A-034).
+- Si el teléfono de la casa tiene `push_token`, marca `confirm_asked_at` en los que deja `cerrado`, sin respuesta y sin marca: siempre con confianza `media`; con `alta`, hasta completar 2 de `alta` en las últimas 24 h de la casa, del más viejo al más nuevo. `manual` nunca.
+- `notify` trae un elemento por aviso marcado, con sus destinatarios: los seguidores con `push_token` (cada uno con el alias que le puso a la casa en `follows`) o, para `confirm`, el teléfono de la casa. Un mismo `push_token` va una sola vez. Un aviso sin destinatarios queda marcado y no se devuelve. Si la revisión no coincide, `notify` es `[]`.
+
 ## Retención
 
 | Dato | Se guarda | Cómo se borra |
@@ -185,7 +198,8 @@ El teléfono sube un snapshot solo si cambió `(plugged, onWifi, homeWifi, inter
 | --- | --- | --- | --- |
 | Latidos (96 de 15 min) | 96 | 96 | 0 |
 | Lotes con cambios y reportes | ~20 | ~60 (auth, `ingest_batch`, `apply_outages`) | ~10 a 30 |
-| Cron (repartido entre todas las casas) | | ~1 | |
+| Cron `sweep` (2 consultas cada 5 min, ~576 al día entre todas las casas) | | ~1 | |
+| Push de un corte (tickets de los avisos, solo cuando sale uno) | | ~0,1 | |
 | **Total** | **~116** | **~157** | **~20** |
 
 Con el plan gratuito de Hyperdrive (100.000 consultas al día) eso da **~640 teléfonos**. Las peticiones de las familias (estado, historial, `/c/:code`) suman algo más, así que el techo práctico ronda los 500 a 600. Antes de llegar ahí: Workers Paid (USD 5 al mes).

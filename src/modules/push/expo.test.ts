@@ -109,8 +109,25 @@ describe('sendPushes', () => {
     expect(await sendPushes(messages(3), { fetch: impl })).toEqual([
       { deviceId: 'device-0', to: 'ExponentPushToken[0]', ticketId: 'a' },
       { deviceId: 'device-1', to: 'ExponentPushToken[1]', error: 'DeviceNotRegistered' },
-      { deviceId: 'device-2', to: 'ExponentPushToken[2]', error: 'algo falló' },
+      { deviceId: 'device-2', to: 'ExponentPushToken[2]', error: 'error' },
     ]);
+  });
+
+  it('el código de error nunca es el message de Expo, que puede citar el token', async () => {
+    const { impl } = fakeFetch(() =>
+      json({
+        data: [
+          {
+            status: 'error',
+            message: '"ExponentPushToken[0]" is not a registered push notification recipient',
+          },
+          { status: 'error', message: 'ExponentPushToken[1] falló', details: { error: 7 } },
+        ],
+      }),
+    );
+    const results = await sendPushes(messages(2), { fetch: impl });
+    expect(results.map((r) => r.error)).toEqual(['error', 'error']);
+    expect(JSON.stringify(results.map((r) => r.error))).not.toContain('ExponentPushToken');
   });
 
   it('un elemento mal formado falla solo su mensaje con bad_response, sin lanzar', async () => {

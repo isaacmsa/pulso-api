@@ -39,11 +39,14 @@ export type ExpoOptions = { fetch: typeof fetch; accessToken?: string };
 
 const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null;
 
-/** El código de un ticket o recibo con error: `details.error`, si no `message`, si no `error`. */
+/**
+ * El código de un ticket o recibo con error: `details.error` (p. ej. `DeviceNotRegistered`), y si
+ * no viene, `error`. Nunca el `message` de Expo: es texto libre y puede citar el token (regla 7),
+ * y estos códigos van a los logs.
+ */
 function errorCode(item: Record<string, unknown>): string {
   const details = item.details;
-  if (isObject(details) && typeof details.error === 'string') return details.error;
-  return typeof item.message === 'string' ? item.message : 'error';
+  return isObject(details) && typeof details.error === 'string' ? details.error : 'error';
 }
 
 function headers(accessToken: string | undefined): Record<string, string> {

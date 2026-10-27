@@ -171,7 +171,8 @@ Kotlin arma el JSON a mano. Para que no se desvíe del contrato, el test de cont
 3. Si el lote viene vacío, responde con el estado de la casa y termina (1 consulta).
 4. Calcula `offset = receivedAt − sentAt` y llama a `app.ingest_batch(device_id, home_id, events, offset, receivedAt)`. La función guarda cada evento con `device_at` sin tocar y `at = device_at + offset`, inserta con `ON CONFLICT (device_id, id) DO NOTHING` y devuelve `accepted`, `duplicated`, la revisión de la casa, la ventana y los cortes guardados que hay que reconciliar. La ventana está definida en `data-model.md` ("Funciones de ingesta"). Si no entró ningún evento nuevo (`accepted = 0`, un reintento) y no queda nada sin clasificar, la ventana viene vacía: responde con el estado del paso 2 y termina (2 consultas). Si un lote anterior guardó eventos y su `apply_outages` no llegó a aplicar (el Worker murió entre las dos consultas, o la revisión lo rechazó), `homes.pending_anchor` sigue puesto: entonces un reintento con `accepted = 0` también trae ventana, desde ese ancla, y sigue con los pasos 5 y 6 (3 consultas, A-024).
 5. En el Worker corren, solo si llegó ventana, `classify` sobre la ventana con el modo de la casa, `reconcileOutages` (con un uuid v7 para cada insert) y `deriveHomeStatus`, que parte del estado que devolvió `ingest_batch` (no del de la auth: otro lote pudo aplicar entre las dos consultas, A-023).
-6. `app.apply_outages(home_id, revision, cambios, estado, now)` aplica todo en una transacción, solo si la revisión no cambió (A-016), borra `pending_anchor` y devuelve el estado de la casa, que es lo que responde la ruta (3 consultas). Si no aplicó porque otro lote ingirió entretanto, deja una línea en el log con la casa y la revisión. Si el estado no cambió, `estado` va como `null` para no escribirlo. Los push de los cortes que se cierran se encolan con `ctx.waitUntil` (fase 3).
+6. `app.apply_outages(home_id, revision, cambios, estado, now)` aplica todo en una transacción, solo si la revisión no cambió (A-016), borra `pending_anchor` y devuelve el estado de la casa, que es lo que responde la ruta (3 consultas). Si no aplicó porque otro lote ingirió entretanto, deja una línea en el log con la casa y la revisión. Si el estado no cambió, `estado` va como `null` para no escribirlo. En la misma transacción, `apply_outages` marca los avisos de los cortes que se cierran (regla 11) y devuelve a quién avisar (A-031, ver "Cuándo sale cada push").
+7. Si hay avisos, se mandan a Expo Push después de responder (`ctx.waitUntil`) y se guardan sus tickets: la 4.ª consulta, solo cuando sale un push (una 5.ª si Expo responde `DeviceNotRegistered` en el ticket). Sin avisos, el lote sigue en 3 consultas. Un error de Expo no se reintenta (el aviso ya quedó marcado): queda en el log contado por código, sin tokens.
 
 ## Límites de peticiones
 
@@ -194,8 +195,25 @@ Se usa el binding Rate Limiting de Workers, con clave por dispositivo, o por IP 
 | Inicio | Seguidores | Cron `sweep`, cada 5 min: corte `abierto` de `MIN_OUTAGE_MS` o más, sin `start_notified_at`, conocido hace 30 min o menos | "Se fue la luz en Casa de mamá (6:05 p. m.)" |
 | Regreso | Seguidores | Al cerrarse como `cerrado`, si hubo push de inicio | "Volvió la luz en Casa de mamá tras 2 h 10 min" |
 | Resumen tardío | Seguidores | Al cerrarse como `cerrado` sin push de inicio (el teléfono no tenía datos) | "En Casa de mamá se fue la luz de 6:05 a 8:15 p. m. (2 h 10 min)" |
-| Confirmación | Teléfono de la casa | Al cerrarse: siempre con confianza `media`; con `alta`, durante el piloto, máximo 2 al día | "¿Se fue la luz de 6:05 a 8:15 p. m.?" con botones Sí y No |
+| Regreso sin duración | Seguidores | Un corte con push de inicio que termina `descartado` (respuesta "No" o "otra red", A-034) | "Volvió la luz en Casa de mamá" |
+| Confirmación | Teléfono de la casa | Al cerrarse como `cerrado`: siempre con confianza `media`; con `alta`, durante el piloto, máximo 2 en 24 h por casa (cuentan solo las de `alta`). Nunca con `manual` ni si ya tiene respuesta | "¿Se fue la luz de 6:05 a 8:15 p. m.?" con botones Sí y No |
 
 "Sin noticias" no genera push en la v1: la familia lo ve al abrir la app o el enlace. El cron `sweep` lee los recibos de Expo Push y borra los `push_token` que respondan `DeviceNotRegistered`.
+
+**Cómo se arma cada push.** El título es "Pulso" y el canal de Android, `cortes`. "Casa de mamá" es el alias que **cada seguidor** le puso a la casa al seguirla (`follows.alias`), así que dos seguidores ven nombres distintos. Las horas van en Caracas (`src/domain/time/format.ts`): "6:05 p. m.", "12:00 m." al mediodía y "12:00 a. m." a la medianoche; en un rango, el "a. m." o "p. m." va una sola vez si las dos horas caen en la misma mitad del mismo día ("de 6:05 a 8:15 p. m."), y si no, completo ("de 11:30 a. m. a 1:15 p. m."). La duración ("2 h 10 min", "45 min", "1 h") sale de las horas que se muestran, sin segundos. Los textos viven en `src/domain/push/messages.ts`. El `data` del push nunca lleva tokens:
+
+| Push | `data` | Extra |
+| --- | --- | --- |
+| Inicio, regreso, resumen tardío, regreso sin duración | `{ type: 'start' \| 'return' \| 'late', homeId, outageStart }` (el regreso sin duración va como `return`) | |
+| Confirmación | `{ type: 'confirm', outageStart }` | `categoryId: 'confirm_outage'` (botones Sí y No, D-028) |
+
+**Cómo no se repite un push (regla 11).** Cada aviso se marca en `outages` con `UPDATE … WHERE …_notified_at IS NULL RETURNING` antes de mandarlo, y solo manda quien puso la marca:
+
+- **Inicio:** el cron `sweep` (`claimStartPushes`, 1 consulta) marca `start_notified_at` en los cortes `abierto` de `MIN_OUTAGE_MS` o más, sin marca y con `created_at` de hace 30 min o menos (A-033), y devuelve sus seguidores con `push_token`. Si dos `sweep` o un `sweep` y el lote que cierra el corte llegan a la vez, el candado de la fila decide: el segundo vuelve a evaluar el `WHERE` con la fila ya cambiada.
+- **Regreso, resumen tardío, regreso sin duración y confirmación:** los marca `apply_outages` al aplicar el lote, en su transacción (A-031). Solo cuenta un cambio de estado: un update que no pasa el corte a `cerrado` o a `descartado` (p. ej. la respuesta a una confirmación) no avisa nada.
+- **Un corte que cambia de id** al reconciliar (el guardado queda `descartado` y entra uno nuevo que se solapa) le pasa sus marcas y su `created_at` al nuevo (A-032): ni se repite el inicio ni sale "volvió la luz".
+- Un aviso sin destinatarios (nadie sigue la casa con `push_token`) queda marcado igual y no sale nunca. La confirmación solo se marca si el teléfono de la casa tiene `push_token`, para no gastar el cupo de `alta`. Un mismo `push_token` (el dueño que sigue su propia casa, o dos registros del mismo teléfono) recibe cada aviso una vez.
+
+El cron `sweep` corre cada 5 minutos (`*/5 * * * *`, staging y producción): reclama los inicios (1 consulta), los manda y guarda sus tickets (1 consulta si salió alguno) y lee los recibos (`processReceipts`, 1 consulta sin tickets vencidos). Sin nada que hacer gasta 2 consultas por pasada, ~576 al día en total (no por casa).
 
 Amenazas y privacidad en `pulso-app/docs/security-privacy.md`.

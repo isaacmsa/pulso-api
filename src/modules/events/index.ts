@@ -2,6 +2,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppEnv } from '../../env';
 import { authenticate } from '../../middleware/auth';
 import { apiError, validationHook } from '../../middleware/errors';
+import { sendAndRecord } from '../push/notices';
 import { postEventsRoute } from './routes';
 import * as service from './service';
 
@@ -17,12 +18,23 @@ export const events = new OpenAPIHono<AppEnv>({ defaultHook: validationHook }).o
     if (!homeId || !home) {
       return apiError(c, 404, 'not_found', 'Este dispositivo no vigila ninguna casa.');
     }
-    const result = await service.ingestEvents(
+    const { response, notify } = await service.ingestEvents(
       c.var.sql,
       { id: device.id, homeId, home },
       batch,
       receivedAt,
     );
-    return c.json(result, 200);
+    // Los avisos ya quedaron marcados (regla 11): se mandan después de responder, y guardar sus
+    // tickets es la 4.ª consulta, solo cuando sale un push (A-031).
+    if (notify.length > 0) {
+      const token = c.env.EXPO_ACCESS_TOKEN;
+      c.var.defer(
+        sendAndRecord(c.var.sql, notify, receivedAt, {
+          fetch: c.var.fetch,
+          ...(token ? { accessToken: token } : {}),
+        }),
+      );
+    }
+    return c.json(response, 200);
   },
 );

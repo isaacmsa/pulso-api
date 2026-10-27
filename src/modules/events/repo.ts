@@ -3,6 +3,7 @@ import type { StoredOutage } from '../../domain/detection/reconcile';
 import type { DetectedOutage, HomeMode } from '../../domain/detection/types';
 import type { DeviceEvent } from '../../domain/events/schema';
 import type { HomeStatus } from '../../domain/homes/schema';
+import type { Notice } from '../push/notices';
 
 export type IngestResult = {
   accepted: number;
@@ -56,9 +57,18 @@ export async function ingestBatch(
   };
 }
 
+export type ApplyResult = {
+  applied: boolean;
+  status: HomeStatus;
+  /** Avisos ya marcados en `outages` en la misma transacción (A-031, regla 11): solo falta mandarlos. */
+  notify: Notice[];
+};
+
 /**
- * `app.apply_outages`: aplica los cambios y el estado si la revisión no cambió (A-016) y devuelve
- * el estado de la casa tal como queda. Una consulta. `status: null` no escribe el estado.
+ * `app.apply_outages`: aplica los cambios y el estado si la revisión no cambió (A-016), marca los
+ * avisos de los cortes que se cierran (regreso, resumen tardío, "volvió la luz" de A-034 y
+ * confirmación) y devuelve el estado de la casa tal como queda y a quién avisar. Una consulta.
+ * `status: null` no escribe el estado.
  */
 export async function applyOutages(
   sql: postgres.Sql,
@@ -69,8 +79,8 @@ export async function applyOutages(
     status: StatusPair | null;
     now: number;
   },
-): Promise<{ applied: boolean; status: HomeStatus }> {
-  const [row] = await sql<{ result: { applied: boolean; status: HomeStatus } }[]>`
+): Promise<ApplyResult> {
+  const [row] = await sql<{ result: ApplyResult }[]>`
     SELECT app.apply_outages(
       ${input.homeId}, ${input.revision}, ${JSON.stringify(input.changes)},
       ${input.status === null ? null : JSON.stringify(input.status)}, ${input.now}

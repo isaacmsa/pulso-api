@@ -19,6 +19,8 @@ export type CreateAppOptions = {
   onQuery?: () => void;
   /** La hora del Worker en epoch ms (por defecto `Date.now`). La usan la auth y todas las rutas; los tests la fijan. */
   now?: () => number;
+  /** El `fetch` para Expo Push (por defecto el global). Los tests pasan uno falso: jamás la red. */
+  fetch?: typeof fetch;
 };
 
 export function createApp(options: CreateAppOptions = {}): OpenAPIHono<AppEnv> {
@@ -26,8 +28,11 @@ export function createApp(options: CreateAppOptions = {}): OpenAPIHono<AppEnv> {
   app.onError(errorHandler);
   app.notFound(notFoundHandler);
   const now = options.now ?? Date.now;
+  // sin `this`: el `fetch` global de Workers lanza "Illegal invocation" como método de otro objeto
+  const fetchImpl: typeof fetch = options.fetch ?? ((input, init) => fetch(input, init));
   app.use('*', async (c, next) => {
     c.set('now', now);
+    c.set('fetch', fetchImpl);
     await next();
   });
   app.use('*', withDb(options.onQuery));
