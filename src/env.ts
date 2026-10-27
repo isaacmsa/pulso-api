@@ -26,6 +26,8 @@ export type Bindings = {
   RATE_LIMIT_PUBLIC: RateLimiter;
   /** Secreto de Worker: base64url de al menos 32 bytes con el que se firman los tokens. */
   TOKEN_SIGNING_KEY: string;
+  /** Secreto de Worker, opcional: token de acceso de Expo Push ("enhanced push security"). */
+  EXPO_ACCESS_TOKEN?: string;
   ENVIRONMENT: string;
   EXPOSE_DOCS?: string;
 };
