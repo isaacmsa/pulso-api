@@ -459,6 +459,62 @@ describe('reglas de push', () => {
     ]);
   });
 
+  it('un corte posterior del mismo lote no hereda el inicio de otro corte', async () => {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    await post(casa.token, 11, [snap(0, true, true), snap(10, false, false)]);
+    await sweep(21);
+
+    // llega tarde: el corte de las 6:10 en realidad empezó a las 6:01 y se descartó a las 6:25
+    // (otro id, descartado), y a las 6:35 empezó otro corte de verdad
+    await post(casa.token, 40, [
+      snap(1, false, true),
+      snap(3, false, false),
+      snap(25, false, true),
+      snap(30, true, true),
+      snap(35, false, false),
+    ]);
+    expect(bodies()).toEqual([
+      'ExponentPushToken[hija] Se fue la luz en Casa de mamá (6:10 p. m.)',
+      'ExponentPushToken[hija] Volvió la luz en Casa de mamá',
+    ]);
+    expect(await outageMarks(casa.homeId)).toMatchObject([
+      { start: at(1), status: 'descartado', startNotified: null },
+      { start: at(10), status: 'descartado', startNotified: at(21), endNotified: at(40) },
+      { start: at(35), status: 'abierto', createdAt: at(40), startNotified: null },
+    ]);
+
+    // el corte de las 6:35 tiene su propio inicio y su propio regreso
+    await sweep(46);
+    await sweep(51);
+    await post(casa.token, 131, [snap(130, true, true)]);
+    expect(ofType('start').map((m) => m.body)).toEqual([
+      'Se fue la luz en Casa de mamá (6:10 p. m.)',
+      'Se fue la luz en Casa de mamá (6:35 p. m.)',
+    ]);
+    expect(ofType('return').map((m) => m.body)).toEqual([
+      'Volvió la luz en Casa de mamá',
+      'Volvió la luz en Casa de mamá tras 1 h 35 min',
+    ]);
+  });
+
+  it('un corte que va y vuelve entre dos ids manda un solo inicio y un solo regreso', async () => {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    await post(casa.token, 11, [snap(0, true, true), snap(10, false, false)]);
+    await sweep(21);
+    await post(casa.token, 22, [snap(1, false, true), snap(3, false, false)]);
+    await post(casa.token, 23, [snap(8, true, true)]);
+
+    await post(casa.token, 60, [snap(59, true, true)]);
+    await sweep(61);
+
+    expect(ofType('start')).toHaveLength(1);
+    expect(ofType('return').map((m) => m.body)).toEqual([
+      'Volvió la luz en Casa de mamá tras 49 min',
+    ]);
+  });
+
   it('un corte que revive al reconciliar manda su regreso y no un volvió la luz falso', async () => {
     const casa = await home();
     await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');

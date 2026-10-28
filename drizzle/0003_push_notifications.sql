@@ -5,10 +5,10 @@ ALTER TABLE "app"."outages" ADD COLUMN "created_at" bigint;--> statement-breakpo
 -- también los cortes que va a actualizar (en orden de id):
 --   · cada insert sella created_at = p_now (A-033: el push de inicio sale solo si el servidor
 --     conoce el corte desde hace 30 min o menos; lo reclama el cron sweep, no esta función);
---   · un corte que esta llamada deja descartado y se solapa con otro que deja sin descartar (un
---     insert o un update) le pasa sus marcas, y a un insert también su created_at (A-032):
---     reclasificar no repite el inicio ni manda un "volvió la luz" de un corte que sigue. Si se
---     solapa con varios, va al de started_at más cercano;
+--   · un corte que esta llamada deja descartado tiene por identidad el corte de esta llamada que
+--     se solapa con él con el started_at más cercano; si esa identidad queda sin descartar (insert
+--     o update), le pasa sus marcas, y a un insert también su created_at (A-032): reclasificar no
+--     repite el inicio ni manda un "volvió la luz" de un corte que sigue;
 --   · marca end_notified_at en cada corte que esta llamada deja cerrado (regreso o resumen tardío),
 --     o descartado con push de inicio y sin heredero (A-034), si no la tenía;
 --   · marca confirm_asked_at en los que deja cerrado: siempre con confianza media; con alta, hasta
@@ -92,30 +92,36 @@ BEGIN
     WHERE c->>'op' = 'insert';
 
     -- A-032: el corte cambió de id, o una reconciliación posterior revive el viejo y descarta el
-    -- nuevo. Cada corte que esta llamada deja descartado (con su intervalo de antes) y se solapa
-    -- con uno que deja sin descartar (insert o update, con su intervalo nuevo) le pasa sus marcas
-    -- al de started_at más cercano, sin pisar las que el heredero ya tenía; a un insert, también
-    -- su created_at (el más viejo; NULL si alguno es de antes de 0003). El descartado conserva sus
-    -- marcas (son lo que de verdad se le avisó), salvo confirm_asked_at, que se mueve: así el cupo
-    -- de alta no cuenta dos veces la misma pregunta. Va antes del UPDATE de abajo, que no toca
-    -- marcas.
-    WITH kept AS (
+    -- nuevo. La identidad de cada corte que esta llamada deja descartado (con su intervalo de
+    -- antes) es el corte de esta llamada (insert o update, descartado o no, con su intervalo
+    -- nuevo) que se solapa con él y tiene el started_at más cercano: la misma regla de cercanía
+    -- con la que reconcileOutages empareja, sin su tope de 5 min (un corte revivido puede estar más
+    -- lejos). Si esa identidad queda sin descartar es su heredero: toma las marcas que no tenía y,
+    -- si es un insert, también el created_at (el más viejo; NULL si alguno es de antes de 0003).
+    -- Si queda descartada, no hay heredero: el viejo avisa su fin, y un corte posterior del mismo
+    -- lote no hereda un inicio que no es suyo. El descartado conserva sus marcas (son lo que de
+    -- verdad se le avisó), salvo confirm_asked_at, que se mueve al heredero: así el cupo de alta
+    -- no cuenta dos veces la misma pregunta. Va antes del UPDATE de abajo, que no toca marcas.
+    WITH touched AS (
       SELECT (c->>'id')::uuid AS id,
              c->>'op' = 'insert' AS is_insert,
+             c->'outage'->>'status' <> 'descartado' AS is_live,
              (c->'outage'->>'start')::bigint AS started_at,
              coalesce((c->'outage'->>'end')::bigint, 9223372036854775807) AS ended_at
       FROM jsonb_array_elements(p_changes) AS c
-      WHERE c->'outage'->>'status' <> 'descartado'
-        AND NOT (c->>'id')::uuid = ANY(v_dropped)
     ),
-    heirs AS (
-      SELECT DISTINCT ON (g.id) g.id AS old_id, n.id AS new_id, n.is_insert
+    identities AS (
+      SELECT DISTINCT ON (g.id) g.id AS old_id, n.id AS new_id, n.is_insert, n.is_live
       FROM app.outages AS g
-      JOIN kept AS n
-        ON n.started_at < coalesce(g.ended_at, 9223372036854775807)
+      JOIN touched AS n
+        ON n.id <> g.id
+       AND n.started_at < coalesce(g.ended_at, 9223372036854775807)
        AND g.started_at < n.ended_at
       WHERE g.id = ANY(v_dropped) AND g.home_id = p_home_id
       ORDER BY g.id, abs(n.started_at - g.started_at), n.started_at, n.id
+    ),
+    heirs AS (
+      SELECT old_id, new_id, is_insert FROM identities WHERE is_live
     ),
     inherited AS (
       SELECT h.new_id,
