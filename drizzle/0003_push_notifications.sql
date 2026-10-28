@@ -1,14 +1,16 @@
 ALTER TABLE "app"."outages" ADD COLUMN "created_at" bigint;--> statement-breakpoint
 
 -- Avisos de push en apply_outages (A-031 a A-034, regla 11). Misma firma que en 0001: solo cambia
--- el cuerpo. Todo en la transacción de la llamada, con la casa bloqueada:
+-- el cuerpo. Todo en la transacción de la llamada, con la casa bloqueada y, antes de leer marcas,
+-- también los cortes que va a actualizar (en orden de id):
 --   · cada insert sella created_at = p_now (A-033: el push de inicio sale solo si el servidor
 --     conoce el corte desde hace 30 min o menos; lo reclama el cron sweep, no esta función);
---   · un corte que esta llamada deja descartado y se solapa con un insert le pasa sus marcas y su
---     created_at (A-032): reclasificar no repite el inicio. Si se solapa con varios, va al de
---     started_at más cercano;
+--   · un corte que esta llamada deja descartado y se solapa con otro que deja sin descartar (un
+--     insert o un update) le pasa sus marcas, y a un insert también su created_at (A-032):
+--     reclasificar no repite el inicio ni manda un "volvió la luz" de un corte que sigue. Si se
+--     solapa con varios, va al de started_at más cercano;
 --   · marca end_notified_at en cada corte que esta llamada deja cerrado (regreso o resumen tardío),
---     o descartado con push de inicio (A-034), si no la tenía;
+--     o descartado con push de inicio y sin heredero (A-034), si no la tenía;
 --   · marca confirm_asked_at en los que deja cerrado: siempre con confianza media; con alta, hasta
 --     2 en 24 h por casa. Solo si el teléfono de la casa tiene push_token;
 --   · devuelve en notify a quién avisar. Un aviso sin destinatarios queda marcado y no se devuelve.
@@ -34,7 +36,7 @@ DECLARE
   v_open_start bigint;
   v_closing uuid[] := '{}';   -- cortes que esta llamada deja cerrado
   v_dropped uuid[] := '{}';   -- cortes guardados que esta llamada deja descartado
-  v_moved uuid[] := '{}';     -- de esos, los que pasaron sus marcas a un insert (A-032)
+  v_moved uuid[] := '{}';     -- de esos, los que tienen heredero (A-032): no avisan su fin
   v_alta_asked integer;
   v_claims jsonb := '[]'::jsonb;   -- [{ kind, outageStart, outageEnd }]
   v_followers jsonb;
@@ -55,6 +57,18 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'apply_outages: op desconocida en p_changes' USING ERRCODE = 'invalid_parameter_value';
     END IF;
+
+    -- Regla 11: los cortes que se van a actualizar se bloquean antes de leer sus marcas, en orden
+    -- de id (el mismo para todos, sin interbloqueos entre lotes). Si un sweep marcó el inicio de
+    -- uno y no confirmó, se espera aquí: todo lo que sigue ve su marca. Y un sweep que llegue
+    -- después espera a esta transacción y vuelve a evaluar su WHERE con el corte ya cambiado.
+    PERFORM 1
+    FROM app.outages
+    WHERE home_id = p_home_id
+      AND id IN (SELECT (c->>'id')::uuid FROM jsonb_array_elements(p_changes) AS c
+                 WHERE c->>'op' = 'update')
+    ORDER BY id
+    FOR UPDATE;
 
     -- Antes de aplicar: qué cortes guardados pasan a cerrado o a descartado en esta llamada. Un
     -- update que no cambia el estado (p. ej. una respuesta a la confirmación) no avisa nada.
@@ -77,28 +91,35 @@ BEGIN
     FROM jsonb_array_elements(p_changes) AS c
     WHERE c->>'op' = 'insert';
 
-    -- A-032: el corte cambió de id. Cada descartado de esta llamada que se solapa con un insert
-    -- (con su intervalo de antes) le pasa sus marcas y su created_at al de started_at más cercano.
-    -- Si varios van al mismo insert, basta con que uno tenga la marca; created_at es el más viejo
-    -- (NULL si alguno es de antes de 0003).
-    WITH inserted AS (
+    -- A-032: el corte cambió de id, o una reconciliación posterior revive el viejo y descarta el
+    -- nuevo. Cada corte que esta llamada deja descartado (con su intervalo de antes) y se solapa
+    -- con uno que deja sin descartar (insert o update, con su intervalo nuevo) le pasa sus marcas
+    -- al de started_at más cercano, sin pisar las que el heredero ya tenía; a un insert, también
+    -- su created_at (el más viejo; NULL si alguno es de antes de 0003). El descartado conserva sus
+    -- marcas (son lo que de verdad se le avisó), salvo confirm_asked_at, que se mueve: así el cupo
+    -- de alta no cuenta dos veces la misma pregunta. Va antes del UPDATE de abajo, que no toca
+    -- marcas.
+    WITH kept AS (
       SELECT (c->>'id')::uuid AS id,
+             c->>'op' = 'insert' AS is_insert,
              (c->'outage'->>'start')::bigint AS started_at,
              coalesce((c->'outage'->>'end')::bigint, 9223372036854775807) AS ended_at
       FROM jsonb_array_elements(p_changes) AS c
-      WHERE c->>'op' = 'insert'
+      WHERE c->'outage'->>'status' <> 'descartado'
+        AND NOT (c->>'id')::uuid = ANY(v_dropped)
     ),
     heirs AS (
-      SELECT DISTINCT ON (g.id) g.id AS old_id, n.id AS new_id
+      SELECT DISTINCT ON (g.id) g.id AS old_id, n.id AS new_id, n.is_insert
       FROM app.outages AS g
-      JOIN inserted AS n
+      JOIN kept AS n
         ON n.started_at < coalesce(g.ended_at, 9223372036854775807)
        AND g.started_at < n.ended_at
-      WHERE g.id = ANY(v_dropped)
+      WHERE g.id = ANY(v_dropped) AND g.home_id = p_home_id
       ORDER BY g.id, abs(n.started_at - g.started_at), n.started_at, n.id
     ),
     inherited AS (
       SELECT h.new_id,
+             bool_or(h.is_insert) AS is_insert,
              CASE WHEN bool_or(g.created_at IS NULL) THEN NULL ELSE min(g.created_at) END
                AS created_at,
              max(g.start_notified_at) AS start_notified_at,
@@ -109,15 +130,18 @@ BEGIN
     ),
     stamped AS (
       UPDATE app.outages AS o
-      SET created_at = i.created_at,
-          start_notified_at = i.start_notified_at,
-          end_notified_at = i.end_notified_at,
-          confirm_asked_at = i.confirm_asked_at
+      SET created_at = CASE WHEN i.is_insert THEN i.created_at ELSE o.created_at END,
+          start_notified_at = coalesce(o.start_notified_at, i.start_notified_at),
+          end_notified_at = coalesce(o.end_notified_at, i.end_notified_at),
+          confirm_asked_at = coalesce(o.confirm_asked_at, i.confirm_asked_at)
       FROM inherited AS i
       WHERE o.id = i.new_id
       RETURNING o.id
     )
     SELECT coalesce(array_agg(old_id), '{}') INTO v_moved FROM heirs;
+
+    UPDATE app.outages SET confirm_asked_at = NULL
+    WHERE id = ANY(v_moved) AND confirm_asked_at IS NOT NULL;
 
     SELECT count(*) INTO v_expected
     FROM jsonb_array_elements(p_changes) AS c WHERE c->>'op' = 'update';
@@ -138,12 +162,6 @@ BEGIN
       RAISE EXCEPTION 'apply_outages: % de % updates no encontraron su corte',
         v_expected - v_updated, v_expected USING ERRCODE = 'no_data_found';
     END IF;
-
-    -- El corte viejo ya no avisa nada: sus marcas siguen en el nuevo, aunque vuelva a aparecer.
-    UPDATE app.outages
-    SET start_notified_at = coalesce(start_notified_at, p_now),
-        end_notified_at = coalesce(end_notified_at, p_now)
-    WHERE id = ANY(v_moved);
 
     -- Un insert que ya llega cerrado (el teléfono subió el corte entero) también se cierra aquí.
     SELECT v_closing || coalesce(array_agg((c->>'id')::uuid), '{}')

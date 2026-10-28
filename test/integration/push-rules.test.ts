@@ -1,8 +1,10 @@
+import type postgres from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { DeviceEvent, Diagnostics } from '../../src/domain/events/schema';
 import type { Bindings, RateLimiter } from '../../src/env';
 import { createApp } from '../../src/index';
 import { runSweep } from '../../src/jobs/sweep';
+import { type Notice, sendAndRecord } from '../../src/modules/push/notices';
 import { claimStartPushes } from '../../src/modules/push/repo';
 import { at, confirmation, MIN, snap } from '../../src/testing/builders';
 import { TEST_SIGNING_KEY, testDb, truncateAll } from './helpers';
@@ -384,7 +386,7 @@ describe('reglas de push', () => {
     const marks = await outageMarks(casa.homeId);
     expect(marks).toMatchObject([
       { start: at(1), status: 'abierto', createdAt: at(11), startNotified: at(21) },
-      { start: at(10), status: 'descartado', startNotified: at(21), endNotified: at(22) },
+      { start: at(10), status: 'descartado', startNotified: at(21), endNotified: null },
     ]);
     expect(before?.createdAt).toBe(at(11));
     await sweep(31);
@@ -395,6 +397,103 @@ describe('reglas de push', () => {
     expect(ofType('return').map((m) => m.body)).toEqual([
       'Volvió la luz en Casa de mamá tras 2 h 9 min',
     ]);
+  });
+
+  it('un sweep que reclama el inicio mientras el corte cambia de id no lo repite', async () => {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    await post(casa.token, 11, [snap(0, true, true), snap(10, false, false)]);
+
+    // un sweep marca el inicio del corte y todavía no confirma
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let claimedOpen!: () => void;
+    const isClaimed = new Promise<void>((resolve) => {
+      claimedOpen = resolve;
+    });
+    const claiming = sql.begin(async (tx) => {
+      const claimed = await claimStartPushes(tx as unknown as postgres.Sql, at(21));
+      claimedOpen();
+      await released;
+      return claimed;
+    });
+    await isClaimed;
+    // mientras tanto llega el lote que cambia el id del corte: espera el candado del corte
+    const changing = post(casa.token, 22, [snap(1, false, true), snap(3, false, false)]);
+    await waitForLockWaits(1);
+    release();
+    const claimed = (await claiming) as Notice[];
+    await changing;
+    await sendAndRecord(sql, claimed, at(21), { fetch: expo.impl });
+
+    await sweep(31);
+    await sweep(36);
+
+    expect(ofType('start')).toHaveLength(1);
+    expect(await outageMarks(casa.homeId)).toMatchObject([
+      { start: at(1), status: 'abierto', startNotified: at(21) },
+      { start: at(10), status: 'descartado', startNotified: at(21) },
+    ]);
+  });
+
+  it('un corte con inicio que al cambiar de id queda descartado manda volvió la luz una vez', async () => {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    await post(casa.token, 11, [snap(0, true, true), snap(10, false, false)]);
+    await sweep(21);
+
+    // llegan tarde: empezó a la 6:01 y a las 6:25 el teléfono volvió a una red que no sabe si es la
+    // de casa, así que el corte nuevo (otro id) queda descartado
+    await post(casa.token, 26, [
+      snap(1, false, true),
+      snap(3, false, false),
+      snap(25, false, true),
+    ]);
+    await sweep(31);
+
+    expect(bodies()).toEqual([
+      'ExponentPushToken[hija] Se fue la luz en Casa de mamá (6:10 p. m.)',
+      'ExponentPushToken[hija] Volvió la luz en Casa de mamá',
+    ]);
+  });
+
+  it('un corte que revive al reconciliar manda su regreso y no un volvió la luz falso', async () => {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    await post(casa.token, 11, [snap(0, true, true), snap(10, false, false)]);
+    await sweep(21);
+    // el corte cambia de id: ahora empieza a la 6:01
+    await post(casa.token, 22, [snap(1, false, true), snap(3, false, false)]);
+    // y otro snapshot atrasado lo parte: de 6:01 a 6:08 fue un bajón, y el de las 6:10 revive
+    await post(casa.token, 23, [snap(8, true, true)]);
+
+    expect(await outageMarks(casa.homeId)).toMatchObject([
+      { start: at(1), status: 'descartado' },
+      { start: at(10), status: 'abierto', startNotified: at(21), endNotified: null },
+    ]);
+    await sweep(31);
+    expect(expo.sent).toHaveLength(1); // ni otro inicio ni "volvió la luz"
+
+    await post(casa.token, 131, [snap(130, true, true)]);
+    expect(ofType('start')).toHaveLength(1);
+    expect(ofType('return').map((m) => m.body)).toEqual(['Volvió la luz en Casa de mamá tras 2 h']);
+  });
+
+  it('el cupo de alta no cuenta dos veces una confirmación que pasó a otro id', async () => {
+    const casa = await home();
+    await post(casa.token, 31, [snap(0, true, true), snap(10, false, false), snap(30, true, true)]);
+    // el corte cerrado cambia de id: la confirmación ya pedida pasa al nuevo
+    await post(casa.token, 32, [snap(1, false, true), snap(3, false, false)]);
+    await post(casa.token, 61, [snap(45, false, false), snap(60, true, true)]);
+    await post(casa.token, 91, [snap(75, false, false), snap(90, true, true)]);
+
+    expect(ofType('confirm').map((m) => m.data.outageStart)).toEqual([at(10), at(45)]);
+    const [asked] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM app.outages
+      WHERE home_id = ${casa.homeId} AND confirm_asked_at IS NOT NULL`;
+    expect(asked?.n).toBe(2);
   });
 
   it('confianza media pide confirmación siempre; alta, como máximo 2 al día', async () => {
