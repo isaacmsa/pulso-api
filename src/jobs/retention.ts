@@ -1,11 +1,9 @@
 import type postgres from 'postgres';
-
-const DAY_MS = 86_400_000;
-
-/** Cuánto se guarda cada cosa. Tiene que coincidir con `/privacidad` y con `docs/data-model.md`. */
-export const EVENTS_RETENTION_MS = 30 * DAY_MS;
-export const INACTIVE_DEVICE_MS = 180 * DAY_MS;
-export const UNUSED_REGISTRATION_MS = 7 * DAY_MS;
+import {
+  EVENTS_RETENTION_MS,
+  INACTIVE_DEVICE_MS,
+  UNUSED_REGISTRATION_MS,
+} from '../domain/retention';
 
 export type RetentionResult = {
   /** `events` de más de 30 días. */

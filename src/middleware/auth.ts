@@ -3,8 +3,8 @@ import type postgres from 'postgres';
 import type { HomeMode } from '../domain/detection/types';
 import type { Diagnostics } from '../domain/events/schema';
 import type { HomeStatus } from '../domain/homes/schema';
+import { EVENTS_RETENTION_MS } from '../domain/retention';
 import type { AppEnv, AuthedDevice } from '../env';
-import { EVENTS_RETENTION_MS } from '../jobs/retention';
 import { sha256Hex, verifyToken } from '../lib/crypto';
 import { bearerToken } from './bearer';
 import { apiError } from './errors';
@@ -23,13 +23,14 @@ type AuthRow = {
  * Autentica y registra el latido en **una sola consulta** (A-004): el `UPDATE … RETURNING` de
  * `devices`, la casa y su corte abierto. Con `diagnostics` también los guarda.
  *
- * Con `revive` (por defecto), si la casa del dispositivo estaba en `sin_noticias` (el cron `sweep`)
- * y no tiene corte abierto, la misma consulta la devuelve a `con_luz` desde `now` y sube su
- * revisión (A-037, A-023). No la devuelve si su corte más reciente está `sin_datos` (y empezó hace
- * 30 días o menos): el teléfono estuvo callado durante un corte y vuelve sin cambios, así que la
- * luz sigue sin volver; el `sweep` lo reabre (A-049). Un lote con eventos pasa `revive: false`:
- * decide la clasificación. Solo la casa del propio dispositivo: un seguidor no tiene `home_id` y no
- * toca ninguna. Los cortes no se escriben aquí (orden de candados: casa y luego cortes). El
+ * Con `revive` (por defecto `false`; solo un `POST /v1/events` vacío, el latido, lo pasa en `true`),
+ * si la casa del dispositivo estaba en `sin_noticias` (el cron `sweep`) y no tiene corte abierto, la
+ * misma consulta la devuelve a `con_luz` desde `now` y sube su revisión (A-037, A-023). No la
+ * devuelve si su corte más reciente está `sin_datos` (y empezó hace 30 días o menos): el teléfono
+ * estuvo callado durante un corte y vuelve sin cambios, así que la luz sigue sin volver; el `sweep`
+ * lo reabre (A-049). Las demás rutas y un lote con eventos no la devuelven: lo decide la
+ * clasificación, que sabe cuándo volvió la luz. Solo la casa del propio dispositivo: un seguidor no
+ * tiene `home_id` y no toca ninguna. Los cortes no se escriben aquí (orden de candados: casa y luego cortes). El
  * `SELECT` final no ve lo que escribe el CTE, así que el estado sale de su `RETURNING`.
  */
 export async function authenticate(
@@ -37,7 +38,7 @@ export async function authenticate(
   tokenHash: string,
   now: number,
   diagnostics?: Diagnostics,
-  { revive = true }: { revive?: boolean } = {},
+  { revive = false }: { revive?: boolean } = {},
 ): Promise<AuthedDevice | null> {
   // jsonb como texto con cast: sql.json() no sirve con el cliente de Drizzle (AGENTS.md)
   const setDiagnostics = diagnostics

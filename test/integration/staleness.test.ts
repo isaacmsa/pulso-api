@@ -226,16 +226,23 @@ describe('sin noticias y sin_datos', () => {
     });
   });
 
-  it('cualquier petición del teléfono de la casa la regresa a con_luz', async () => {
+  it('solo el latido del teléfono de la casa la regresa a con_luz', async () => {
     const casa = await home();
     await sweep(45);
     expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_noticias', since: at(0) });
 
+    // otra ruta autenticada del teléfono no la devuelve: solo `POST /v1/events` vacío (4.1, fold-in)
     now = at(50);
-    const res = await call('GET', '/v1/homes/me/status', casa.token);
+    const status = await call('GET', '/v1/homes/me/status', casa.token);
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({ state: 'sin_noticias', since: at(0) });
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_noticias', since: at(0) });
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ state: 'con_luz', since: at(50) });
+    now = at(51);
+    expect(await post(casa.token, 51)).toMatchObject({
+      status: { state: 'con_luz', since: at(51) },
+    });
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'con_luz', since: at(51) });
   });
 
   it('el latido de un seguidor no cambia el estado de otras casas', async () => {
