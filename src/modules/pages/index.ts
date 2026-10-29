@@ -4,7 +4,7 @@ import type { AppEnv } from '../../env';
 import { apiError } from '../../middleware/errors';
 import { rateLimit } from '../../middleware/rate-limit';
 import { DeleteData } from './delete-data';
-import { FamilyNotFound, FamilyPage } from './family';
+import { ANDROID_PACKAGE, FamilyNotFound, FamilyPage, openInAppHref } from './family';
 import { Privacy } from './privacy';
 import { findHomeByShareCode } from './repo';
 
@@ -19,15 +19,16 @@ const headers = {
 };
 
 // `/c/:code` (A-035): sin dominio propio no hay Cache API, así que el único caché es el del
-// cliente. El código va en la URL: que no salga en el `Referer` ni se indexe.
+// cliente. El código va en la URL: que no salga en el `Referer` ni se indexe. El botón cambia
+// según el User-Agent (A-048), por eso `Vary`: un caché no puede darle a un iPhone la página de
+// Android.
 const familyHeaders = {
   ...headers,
   'cache-control': 'public, max-age=30',
+  vary: 'User-Agent',
   'x-robots-tag': 'noindex',
   'referrer-policy': 'no-referrer',
 };
-
-const ANDROID_PACKAGE = 'com.isaacmendoza.pulso';
 
 export const pages = new Hono<AppEnv>()
   .get('/privacidad', (c) => c.body(`<!doctype html>${Privacy()}`, 200, headers))
@@ -40,7 +41,12 @@ export const pages = new Hono<AppEnv>()
     if (!parsed.success) return notFound();
     const home = await findHomeByShareCode(c.var.sql, parsed.data);
     if (!home) return notFound();
-    const page = FamilyPage({ code: parsed.data, home, now: c.var.now() });
+    const openHref = openInAppHref({
+      code: parsed.data,
+      origin: new URL(c.req.url).origin,
+      android: /Android/i.test(c.req.header('user-agent') ?? ''),
+    });
+    const page = FamilyPage({ code: parsed.data, home, now: c.var.now(), openHref });
     return c.body(`<!doctype html>${page}`, 200, familyHeaders);
   })
   // App Links: Android verifica el dominio con este archivo. Sin huella configurada no hay nada

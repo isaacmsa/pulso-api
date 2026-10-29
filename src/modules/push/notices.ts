@@ -55,7 +55,10 @@ function text(notice: Notice, alias: string): PushText {
 
 /**
  * Un mensaje de Expo por destinatario. El `data` lleva lo que la app necesita para abrir la casa
- * (o responder la confirmación), nunca tokens.
+ * (o responder la confirmación), nunca tokens. Todos salen con `priority: 'high'`, incluida la
+ * confirmación: un teléfono Android en Doze (el de la casa, sobre todo, que pasa horas quieto) no
+ * entrega un aviso de prioridad normal hasta la siguiente ventana de mantenimiento, y cada aviso
+ * es una noticia de un corte, no un contenido que pueda esperar.
  */
 export function buildMessages(notices: readonly Notice[]): PushMessage[] {
   return notices.flatMap((notice) =>
@@ -69,6 +72,7 @@ export function buildMessages(notices: readonly Notice[]): PushMessage[] {
           data: { type: 'confirm', outageStart: notice.outageStart },
           channelId: 'cortes',
           categoryId: 'confirm_outage',
+          priority: 'high',
           deviceId: target.deviceId,
         };
       }
@@ -79,6 +83,7 @@ export function buildMessages(notices: readonly Notice[]): PushMessage[] {
         body,
         data: { type, homeId: notice.homeId, outageStart: notice.outageStart },
         channelId: 'cortes',
+        priority: 'high',
         deviceId: target.deviceId,
       };
     }),

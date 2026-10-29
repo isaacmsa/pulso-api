@@ -74,7 +74,11 @@ export async function followHome(
   return { kind: 'followed', item: toItem({ ...row, follow_alias: row.follow_alias }) };
 }
 
-/** Las casas que sigue el dispositivo con su estado, por alias, en una sola consulta. */
+/**
+ * Las casas que sigue el dispositivo con su estado, en una sola consulta. El orden de la base
+ * (`alias`, `home_id`) solo es determinista: el orden para personas lo pone `sortFollows` en el
+ * servicio (A-041, sin depender de una collation que Supabase quizá no tenga).
+ */
 export async function listFollows(sql: postgres.Sql, deviceId: string): Promise<FollowItem[]> {
   const rows = await sql<FollowRow[]>`
     SELECT f.home_id, f.alias AS follow_alias, h.alias AS home_alias, h.status, h.status_since,
@@ -88,7 +92,7 @@ export async function listFollows(sql: postgres.Sql, deviceId: string): Promise<
       LIMIT 1
     ) open_outage ON true
     WHERE f.follower_device_id = ${deviceId}
-    ORDER BY f.alias COLLATE "und-x-icu", f.alias, f.home_id`;
+    ORDER BY f.alias, f.home_id`;
   return rows.map((row) => toItem({ ...row, follow_alias: row.follow_alias as string }));
 }
 

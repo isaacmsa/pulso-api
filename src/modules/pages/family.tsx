@@ -1,5 +1,10 @@
 import { caracasDate } from '../../domain/time/caracas';
-import { formatClock, formatDuration, formatShortDate } from '../../domain/time/format';
+import {
+  formatClock,
+  formatDuration,
+  formatShortDate,
+  shownDurationMs,
+} from '../../domain/time/format';
 import { Layout } from './layout';
 import type { FamilyHome } from './repo';
 
@@ -21,20 +26,54 @@ export function statusText(home: FamilyHome, now: number): string {
     case 'sin_noticias':
       return `Sin noticias de la casa desde ${moment(home.since, now).text}`;
     case 'sin_luz': {
-      // el corte abierto es lo que se cuenta; `since` solo si por algún motivo no hay ninguno
+      // el corte abierto es lo que se cuenta; `since` solo si por algún motivo no hay ninguno. La
+      // duración sale de las horas que se muestran, igual que en los push (`shownDurationMs`).
       const start = home.openOutageStart ?? home.since;
       const { sameDay, text } = moment(start, now);
-      return `Se fue la luz ${sameDay ? 'a ' : ''}${text} (${formatDuration(now - start)})`;
+      return `Se fue la luz ${sameDay ? 'a ' : ''}${text} (${formatDuration(shownDurationMs(start, now))})`;
     }
   }
 }
 
-export function FamilyPage({ code, home, now }: { code: string; home: FamilyHome; now: number }) {
+export const ANDROID_PACKAGE = 'com.isaacmendoza.pulso';
+
+/**
+ * A dónde lleva "Abrir en Pulso". En Android, un `intent:` que abre la app y, si no está
+ * instalada, vuelve a esta misma página (`S.browser_fallback_url`; en la fase 5 puede apuntar a la
+ * ficha de Play, A-048). Fuera de Android, el enlace de siempre: los App Links cubren el resto.
+ * `origin` es el de la petición (`https://host`): en el `intent:` el esquema va aparte.
+ */
+export function openInAppHref({
+  code,
+  origin,
+  android,
+}: {
+  code: string;
+  origin: string;
+  android: boolean;
+}): string {
+  if (!android) return `/c/${code}`;
+  const { host } = new URL(origin);
+  const fallback = encodeURIComponent(`${origin}/c/${code}`);
+  return `intent://${host}/c/${code}#Intent;scheme=https;package=${ANDROID_PACKAGE};S.browser_fallback_url=${fallback};end`;
+}
+
+export function FamilyPage({
+  code,
+  home,
+  now,
+  openHref = `/c/${code}`,
+}: {
+  code: string;
+  home: FamilyHome;
+  now: number;
+  openHref?: string;
+}) {
   return (
     <Layout title={`${home.alias} · Pulso`}>
       <h1>{home.alias}</h1>
       <p class="status">{statusText(home, now)}</p>
-      <a class="btn" href={`/c/${code}`}>
+      <a class="btn" href={openHref}>
         Abrir en Pulso
       </a>
       <p class="muted">Recarga la página para ver el estado más reciente.</p>

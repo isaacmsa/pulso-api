@@ -45,6 +45,7 @@ type SentMessage = {
   data: Record<string, unknown>;
   channelId: string;
   categoryId?: string;
+  priority?: string;
 };
 
 const json = (body: unknown) =>
@@ -209,6 +210,7 @@ describe('reglas de push', () => {
         body: 'Se fue la luz en Casa de mamá (6:05 p. m.)',
         data: { type: 'start', homeId: casa.homeId, outageStart: at(5) },
         channelId: 'cortes',
+        priority: 'high',
       },
       {
         to: 'ExponentPushToken[nieto]',
@@ -216,6 +218,7 @@ describe('reglas de push', () => {
         body: 'Se fue la luz en Donde la abuela (6:05 p. m.)',
         data: { type: 'start', homeId: casa.homeId, outageStart: at(5) },
         channelId: 'cortes',
+        priority: 'high',
       },
     ]);
     expect(await outageMarks(casa.homeId)).toMatchObject([
@@ -242,6 +245,7 @@ describe('reglas de push', () => {
     expect(ofType('late').map((m) => m.body)).toEqual([
       'En Casa de mamá se fue la luz de 6:05 a 8:15 p. m. (2 h 10 min)',
     ]);
+    expect(ofType('late')[0]?.priority).toBe('high');
     expect(ofType('late')[0]?.data).toEqual({
       type: 'late',
       homeId: casa.homeId,
@@ -275,6 +279,7 @@ describe('reglas de push', () => {
       'ExponentPushToken[hija] Volvió la luz en Casa de mamá tras 2 h 10 min',
       'ExponentPushToken[casa] ¿Se fue la luz de 6:05 a 8:15 p. m.?',
     ]);
+    expect(ofType('return')[0]?.priority).toBe('high');
     expect(ofType('return')[0]?.data).toEqual({
       type: 'return',
       homeId: casa.homeId,
@@ -288,6 +293,7 @@ describe('reglas de push', () => {
         data: { type: 'confirm', outageStart: at(5) },
         channelId: 'cortes',
         categoryId: 'confirm_outage',
+        priority: 'high',
       },
     ]);
     expect(await outageMarks(casa.homeId)).toMatchObject([

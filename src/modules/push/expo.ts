@@ -21,6 +21,8 @@ export type PushMessage = {
   data?: Record<string, unknown>;
   channelId: 'cortes';
   categoryId?: 'confirm_outage';
+  /** `high` despierta un Android en Doze: un aviso de corte no puede esperar a la siguiente ventana. */
+  priority?: 'high';
   /** Solo para devolver el resultado a su dispositivo: no se manda a Expo. */
   deviceId: string;
 };
@@ -35,7 +37,20 @@ export type Receipt = {
   retry?: true;
 };
 
-export type ExpoOptions = { fetch: typeof fetch; accessToken?: string };
+export type ExpoOptions = {
+  fetch: typeof fetch;
+  accessToken?: string;
+  /** Tope de cada llamada a Expo; pasado, es un `network_error`. Por defecto 10 s. */
+  timeoutMs?: number;
+};
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+/**
+ * Un token de Expo bien formado. Si uno solo no lo es (o es de otro proyecto), Expo puede
+ * rechazar el envío entero de hasta 100 mensajes: se descarta antes, sin llamar a Expo.
+ */
+const EXPO_TOKEN = /^Expo(nent)?PushToken\[[^\]]+\]$/;
 
 const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null;
 
@@ -72,6 +87,7 @@ type Reply = { ok: true; body: unknown } | { ok: false; error: string };
  * `bad_response`.
  */
 async function post(url: string, payload: unknown, opts: ExpoOptions): Promise<Reply> {
+  const signal = AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   let res: Response;
   try {
     // Se saca de `opts` para llamarla sin `this`: el `fetch` global de Workers lanza "Illegal
@@ -81,6 +97,8 @@ async function post(url: string, payload: unknown, opts: ExpoOptions): Promise<R
       method: 'POST',
       headers: headers(opts.accessToken),
       body: JSON.stringify(payload),
+      // sin tope, Expo colgado dejaría el cron (o el `waitUntil`) esperando hasta que el runtime lo mate
+      signal,
     });
   } catch {
     return { ok: false, error: 'network_error' };
@@ -89,6 +107,8 @@ async function post(url: string, payload: unknown, opts: ExpoOptions): Promise<R
   try {
     body = await res.json();
   } catch {
+    // el tope también corta la lectura del cuerpo
+    if (signal.aborted) return { ok: false, error: 'network_error' };
     return { ok: false, error: res.ok ? 'bad_response' : `http_${res.status}` };
   }
   if (!res.ok) {
@@ -102,35 +122,41 @@ export async function sendPushes(
   messages: readonly PushMessage[],
   opts: ExpoOptions,
 ): Promise<SendResult[]> {
-  const results: SendResult[] = [];
-  for (const group of chunks(messages, SEND_CHUNK)) {
+  // un token mal formado no se manda (ni se escribe en los logs): solo se cuenta por su código
+  const valid = messages.filter((m) => EXPO_TOKEN.test(m.to));
+  const sent = new Map<PushMessage, SendResult>();
+  for (const group of chunks(valid, SEND_CHUNK)) {
     const payload = group.map(({ deviceId: _deviceId, ...message }) => message);
     const reply = await post(SEND_URL, payload, opts);
     const tickets = reply.ok ? (reply.body as { data?: unknown } | null)?.data : undefined;
     if (!reply.ok || !Array.isArray(tickets) || tickets.length !== group.length) {
       const error = reply.ok ? 'bad_response' : reply.error;
-      for (const m of group) results.push({ deviceId: m.deviceId, to: m.to, error });
+      for (const m of group) sent.set(m, { deviceId: m.deviceId, to: m.to, error });
       continue;
     }
     group.forEach((m, i) => {
       const ticket: unknown = tickets[i];
       const base = { deviceId: m.deviceId, to: m.to };
       if (!isObject(ticket)) {
-        results.push({ ...base, error: 'bad_response' });
+        sent.set(m, { ...base, error: 'bad_response' });
       } else if (ticket.status === 'ok') {
-        results.push(
+        sent.set(
+          m,
           typeof ticket.id === 'string'
             ? { ...base, ticketId: ticket.id }
             : { ...base, error: 'bad_response' },
         );
       } else if (ticket.status === 'error') {
-        results.push({ ...base, error: errorCode(ticket) });
+        sent.set(m, { ...base, error: errorCode(ticket) });
       } else {
-        results.push({ ...base, error: 'bad_response' });
+        sent.set(m, { ...base, error: 'bad_response' });
       }
     });
   }
-  return results;
+  // el orden de la entrada se conserva
+  return messages.map(
+    (m) => sent.get(m) ?? { deviceId: m.deviceId, to: m.to, error: 'invalid_token_format' },
+  );
 }
 
 export async function getReceipts(

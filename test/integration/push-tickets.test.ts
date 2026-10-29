@@ -82,6 +82,22 @@ describe('tickets y recibos de Expo Push', () => {
     ]);
   });
 
+  it('saveTickets omite el ticket de un dispositivo que se borró y guarda los demás', async () => {
+    const gone = await phone();
+    const here = await phone();
+    await sql`DELETE FROM app.devices WHERE id = ${gone}`;
+    await saveTickets(
+      counted.sql,
+      [
+        { ticketId: 't-gone', deviceId: gone },
+        { ticketId: 't-here', deviceId: here },
+      ],
+      NOW,
+    );
+    expect(queries).toBe(1);
+    expect((await storedTickets()).map((t) => t.ticket_id)).toEqual(['t-here']);
+  });
+
   it('saveTickets y clearPushTokens sin nada no consultan', async () => {
     await saveTickets(counted.sql, [], NOW);
     await clearPushTokens(counted.sql, []);
@@ -156,11 +172,59 @@ describe('tickets y recibos de Expo Push', () => {
     });
     const result = await processReceipts(counted.sql, impl, NOW, 'secreto');
     expect(result).toEqual({ read: 2, cleared: 1, retried: 0, expired: 0, errors: {} });
-    expect(queries).toBe(2);
+    expect(queries).toBe(3); // tomar, borrar el token muerto y renovar el del recibo ok
     expect(calls).toHaveLength(1);
     expect(await tokenOf(dead)).toBeNull();
     expect(await tokenOf(alive)).toBe('ExponentPushToken[vivo]');
     expect(await storedTickets()).toEqual([]);
+  });
+
+  const lastSeen = async (deviceId: string) =>
+    Number(
+      (
+        await sql<{ last_seen_at: string }[]>`
+          SELECT last_seen_at FROM app.devices WHERE id = ${deviceId}`
+      )[0]?.last_seen_at,
+    );
+
+  it('un recibo ok renueva last_seen_at del dispositivo, y solo el de ese recibo', async () => {
+    const ok = await phone();
+    const failed = await phone();
+    const unknown = await phone();
+    await sql`UPDATE app.devices SET last_seen_at = 1000 WHERE id IN ${sql([ok, failed, unknown])}`;
+    await saveTickets(
+      sql,
+      [
+        { ticketId: 't-ok', deviceId: ok },
+        { ticketId: 't-failed', deviceId: failed },
+        { ticketId: 't-unknown', deviceId: unknown },
+      ],
+      NOW - RECEIPT_DELAY_MS,
+    );
+    const { impl } = receiptsFetch({
+      't-ok': { status: 'ok' },
+      't-failed': { status: 'error', message: 'x', details: { error: 'MessageRateExceeded' } },
+    });
+    await processReceipts(counted.sql, impl, NOW);
+    expect(queries).toBe(2); // tomar los tickets + una consulta para los dispositivos con recibo ok
+    expect(await lastSeen(ok)).toBe(NOW);
+    expect(await lastSeen(failed)).toBe(1000);
+    expect(await lastSeen(unknown)).toBe(1000);
+  });
+
+  it('un recibo ok nunca retrasa last_seen_at', async () => {
+    const d = await phone();
+    await sql`UPDATE app.devices SET last_seen_at = ${NOW + 5000} WHERE id = ${d}`;
+    await saveTickets(sql, [{ ticketId: 't', deviceId: d }], NOW - RECEIPT_DELAY_MS);
+    await processReceipts(sql, receiptsFetch({ t: { status: 'ok' } }).impl, NOW);
+    expect(await lastSeen(d)).toBe(NOW + 5000);
+  });
+
+  it('sin recibos ok no hay consulta de más', async () => {
+    const d = await phone();
+    await saveTickets(sql, [{ ticketId: 't', deviceId: d }], NOW - RECEIPT_DELAY_MS);
+    await processReceipts(counted.sql, receiptsFetch('network-error').impl, NOW);
+    expect(queries).toBe(2); // tomar + devolver el ticket a la tabla
   });
 
   it('un recibo con otro error no borra el token y el ticket se descarta', async () => {
@@ -199,7 +263,7 @@ describe('tickets y recibos de Expo Push', () => {
       errors: {},
     });
     expect(calls.map((c) => c.length)).toEqual([1000, 500]);
-    expect(queries).toBe(1);
+    expect(queries).toBe(2); // tomar y renovar last_seen_at (un solo dispositivo)
   });
 
   it('si Expo no responde, los tickets vuelven a la tabla con su hora original', async () => {

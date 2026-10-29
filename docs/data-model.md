@@ -181,7 +181,7 @@ Y marca los avisos (A-031 a A-034, regla 11), en la misma transacción:
 | --- | --- | --- |
 | `events` | 30 días (`at`) | Cron `retention`, diario a las 4:00 a. m. de Caracas |
 | `outages` | Mientras exista la casa | Al borrar la casa (cascada) |
-| `devices` sin actividad | 180 días sin `last_seen_at` | Cron `retention`: borra el dispositivo y su casa (si tiene), y la cascada lleva eventos, cortes y follows |
+| `devices` sin actividad | 180 días sin `last_seen_at` (un latido, una petición o un recibo `ok` de un push, A-047) | Cron `retention`: borra el dispositivo y su casa (si tiene), y la cascada lleva eventos, cortes y follows |
 | `devices` registrados que nunca mandaron nada | 7 días, sin casa, sin follows y con `last_seen_at = created_at` | Cron `retention` |
 | `push_tickets` | Hasta leer el recibo (unos 15 min) | Cron `sweep` (`processReceipts` los toma con `DELETE … RETURNING`; ver A-044) |
 

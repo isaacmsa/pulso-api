@@ -65,8 +65,12 @@ describe('página de la familia y App Links', () => {
     return { homeId, deviceId };
   }
 
-  async function get(path: string, env: Bindings = testEnv()) {
-    const res = await app.request(path, {}, env);
+  async function get(path: string, env: Bindings = testEnv(), userAgent?: string) {
+    const res = await app.request(
+      path,
+      userAgent ? { headers: { 'user-agent': userAgent } } : {},
+      env,
+    );
     return { res, html: await res.text() };
   }
 
@@ -79,6 +83,18 @@ describe('página de la familia y App Links', () => {
     expect(html).toContain('Abrir en Pulso');
     expect(html).toContain(`href="/c/${CODE}"`);
     expect(queries).toBe(1);
+  });
+
+  it('la duración se cuenta con las horas que se muestran, igual que en los push', async () => {
+    // empezó a las 6:05:50 y son las 7:25:00: pasaron 1 h 19 min 10 s, pero la página dice 6:05 y
+    // el push de regreso diría "tras 1 h 20 min" (7:25 menos 6:05)
+    await seedHome({
+      status: 'sin_luz',
+      since: VET(18, 5) + 50_000,
+      openOutageStart: VET(18, 5) + 50_000,
+    });
+    const { html } = await get(`/c/${CODE}`);
+    expect(html).toContain('Se fue la luz a las 6:05 p. m. (1 h 20 min)');
   });
 
   it('muestra Hay luz desde las 2:30 p. m.', async () => {
@@ -124,6 +140,46 @@ describe('página de la familia y App Links', () => {
     const { res, html } = await get(`/c/${CODE.toLowerCase()}`);
     expect(res.status).toBe(200);
     expect(html).toContain('Hay luz desde las 2:30 p. m.');
+  });
+
+  describe('botón Abrir en Pulso', () => {
+    const ANDROID =
+      'Mozilla/5.0 (Linux; Android 15; 25028RN03L) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36';
+    const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/605.1.15';
+    const HOST = 'http://localhost'; // el origen que usa `app.request` con una ruta relativa
+
+    beforeEach(async () => {
+      await seedHome({ status: 'con_luz', since: VET(14, 30) });
+    });
+
+    it('en Android abre la app con un intent y cae a esta misma página', async () => {
+      const { html } = await get(`/c/${CODE}`, testEnv(), ANDROID);
+      const fallback = encodeURIComponent(`${HOST}/c/${CODE}`);
+      expect(html).toContain(
+        `href="intent://localhost/c/${CODE}#Intent;scheme=https;package=com.isaacmendoza.pulso;S.browser_fallback_url=${fallback};end"`,
+      );
+    });
+
+    it('el intent usa el código normalizado aunque llegue en minúsculas', async () => {
+      const { html } = await get(`/c/${CODE.toLowerCase()}`, testEnv(), ANDROID);
+      expect(html).toContain(`intent://localhost/c/${CODE}#Intent;`);
+    });
+
+    it('fuera de Android el botón es el enlace de siempre', async () => {
+      for (const ua of [IPHONE, undefined, 'curl/8.0']) {
+        const { html } = await get(`/c/${CODE}`, testEnv(), ua);
+        expect(html, String(ua)).toContain(`href="/c/${CODE}"`);
+        expect(html, String(ua)).not.toContain('intent:');
+      }
+    });
+
+    it('la respuesta varía por User-Agent para que el caché no mezcle las dos', async () => {
+      for (const ua of [ANDROID, IPHONE, undefined]) {
+        const { res } = await get(`/c/${CODE}`, testEnv(), ua);
+        expect(res.headers.get('vary'), String(ua)).toMatch(/user-agent/i);
+        expect(res.headers.get('cache-control')).toBe('public, max-age=30');
+      }
+    });
   });
 
   it('lleva las cabeceras de seguridad y de caché', async () => {

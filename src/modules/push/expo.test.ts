@@ -74,7 +74,9 @@ describe('sendPushes', () => {
 
   it('no manda el deviceId a Expo y conserva el resto del mensaje', async () => {
     const { impl, calls } = fakeFetch(allOk);
-    await sendPushes([{ ...message(1), categoryId: 'confirm_outage' }], { fetch: impl });
+    await sendPushes([{ ...message(1), categoryId: 'confirm_outage', priority: 'high' }], {
+      fetch: impl,
+    });
     const sent = calls.at(0)?.body as Record<string, unknown>[];
     expect(sent[0]).toEqual({
       to: 'ExponentPushToken[1]',
@@ -83,7 +85,87 @@ describe('sendPushes', () => {
       data: { homeId: 'h' },
       channelId: 'cortes',
       categoryId: 'confirm_outage',
+      priority: 'high',
     });
+  });
+
+  it('no manda a Expo un token mal formado o de otro proyecto, y lo cuenta aparte', async () => {
+    const { impl, calls } = fakeFetch(allOk);
+    const mixed: PushMessage[] = [
+      { ...message(0), to: 'ExponentPushToken[bueno]' },
+      { ...message(1), to: 'basura' },
+      { ...message(2), to: 'ExpoPushToken[tambien-bueno]' },
+      { ...message(3), to: 'fcm:APA91bFoo' },
+      { ...message(4), to: 'ExponentPushToken[]' },
+      { ...message(5), to: 'ExponentPushToken[a]b' },
+      { ...message(6), to: ' ExponentPushToken[espacio]' },
+    ];
+    const results = await sendPushes(mixed, { fetch: impl });
+    // a Expo solo van los dos válidos, en un solo envío
+    const first = calls.at(0)?.body as PushMessage[];
+    expect(first.map((m) => m.to)).toEqual([
+      'ExponentPushToken[bueno]',
+      'ExpoPushToken[tambien-bueno]',
+    ]);
+    expect(calls).toHaveLength(1);
+    // el resultado conserva el orden y asigna cada error a su dispositivo
+    expect(results.map((r) => [r.deviceId, r.error ?? 'ok'])).toEqual([
+      ['device-0', 'ok'],
+      ['device-1', 'invalid_token_format'],
+      ['device-2', 'ok'],
+      ['device-3', 'invalid_token_format'],
+      ['device-4', 'invalid_token_format'],
+      ['device-5', 'invalid_token_format'],
+      ['device-6', 'invalid_token_format'],
+    ]);
+    expect(results[0]?.ticketId).toBe('t-ExponentPushToken[bueno]');
+  });
+
+  it('si ningún token es válido no llama a Expo', async () => {
+    const { impl, calls } = fakeFetch(allOk);
+    const results = await sendPushes([{ ...message(1), to: 'nada' }], { fetch: impl });
+    expect(calls).toHaveLength(0);
+    expect(results).toEqual([{ deviceId: 'device-1', to: 'nada', error: 'invalid_token_format' }]);
+  });
+
+  it('un token inválido no cuenta para el tope de 100 por envío', async () => {
+    const { impl, calls } = fakeFetch(allOk);
+    const many = [...messages(100), { ...message(100), to: 'basura' }];
+    await sendPushes(many, { fetch: impl });
+    expect(calls.map((c) => (c.body as unknown[]).length)).toEqual([100]);
+  });
+
+  it('la llamada lleva un timeout por defecto', async () => {
+    const { impl, calls } = fakeFetch(allOk);
+    await sendPushes(messages(1), { fetch: impl });
+    await getReceipts(['a'], { fetch: impl });
+    expect(calls.map((c) => c.init.signal instanceof AbortSignal)).toEqual([true, true]);
+  });
+
+  it('un timeout es un error de red por mensaje, no una excepción', async () => {
+    const hanging = (async (_url: unknown, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+      })) as typeof fetch;
+    const results = await sendPushes(messages(2), { fetch: hanging, timeoutMs: 20 });
+    expect(results.map((r) => r.error)).toEqual(['network_error', 'network_error']);
+    const receipts = await getReceipts(['a'], { fetch: hanging, timeoutMs: 20 });
+    expect(receipts).toEqual({ a: { status: 'error', error: 'network_error', retry: true } });
+  });
+
+  it('un timeout mientras llega el cuerpo también es un error de red', async () => {
+    const slowBody = (async (_url: unknown, init?: RequestInit) => {
+      const res = new Response('{}');
+      Object.defineProperty(res, 'json', {
+        value: () =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          }),
+      });
+      return res;
+    }) as typeof fetch;
+    const results = await sendPushes(messages(1), { fetch: slowBody, timeoutMs: 20 });
+    expect(results[0]?.error).toBe('network_error');
   });
 
   it('no llama a Expo sin mensajes', async () => {

@@ -83,7 +83,9 @@ export async function claimStartPushes(sql: postgres.Sql, now: number): Promise<
 /**
  * Guarda los tickets de un envío, en UNA consulta. Los pasa como un `jsonb` (`JSON.stringify`,
  * no `sql.json()`: ver "Trampas conocidas" de AGENTS.md). Un `ticket_id` repetido se ignora.
- * `created_at` es `now`, salvo en un ticket que vuelve con su `createdAt` original.
+ * `created_at` es `now`, salvo en un ticket que vuelve con su `createdAt` original. El `JOIN` con
+ * `devices` omite los tickets de un dispositivo que se borró entre el envío y este guardado: sin
+ * él, la llave foránea haría fallar el `INSERT` entero y se perderían también los demás tickets.
  */
 export async function saveTickets(
   sql: postgres.Sql,
@@ -101,6 +103,7 @@ export async function saveTickets(
         created_at: t.createdAt ?? now,
       })),
     )}::jsonb) AS t(ticket_id text, device_id uuid, created_at bigint)
+    JOIN app.devices d ON d.id = t.device_id
     ON CONFLICT (ticket_id) DO NOTHING`;
 }
 
@@ -115,6 +118,21 @@ export async function clearPushTokens(
     WHERE id IN ${sql(deviceIds as string[])} AND push_token IS NOT NULL
     RETURNING id`;
   return rows.length;
+}
+
+/**
+ * Renueva `last_seen_at` de esos dispositivos, en UNA consulta. Nunca lo retrasa (`GREATEST`): un
+ * latido o una petición más nueva que `now` se respeta.
+ */
+export async function touchDevices(
+  sql: postgres.Sql,
+  deviceIds: readonly string[],
+  now: number,
+): Promise<void> {
+  if (deviceIds.length === 0) return;
+  await sql`
+    UPDATE app.devices SET last_seen_at = GREATEST(last_seen_at, ${now}::bigint)
+    WHERE id IN ${sql(deviceIds as string[])}`;
 }
 
 /**
@@ -202,8 +220,11 @@ export type ReceiptsResult = {
  * Lee los recibos de los tickets de hace 15 min o más y borra los `push_token` con
  * `DeviceNotRegistered`. Lo llama el cron `sweep` (tarea 3.3), que registra `errors`.
  *
- * Consultas: 1 (`takeDueTickets`) + 1 si hay tokens que borrar. Más 1 solo si hay tickets que
- * reintentar. Sin tickets vencidos, es 1 sola y no se llama a Expo.
+ * Un recibo `ok` renueva el `last_seen_at` de su dispositivo (A-045): un familiar que solo recibe
+ * avisos no hace peticiones, y sin esto la retención de 180 días lo borraría estando vivo.
+ *
+ * Consultas: 1 (`takeDueTickets`) + 1 si hay tokens que borrar + 1 si algún recibo fue `ok`. Más 1
+ * solo si hay tickets que reintentar. Sin tickets vencidos, es 1 sola y no se llama a Expo.
  *
  * Los tickets se borran al tomarlos (`DELETE … RETURNING`) y no después de leer los recibos,
  * para no gastar una consulta más. Si `getReceipts` falla en un grupo (o devuelve un recibo
@@ -233,14 +254,17 @@ export async function processReceipts(
   );
 
   const dead = new Set<string>();
+  const received = new Set<string>();
   const retry: StoredTicket[] = [];
   for (const ticket of live) {
     const receipt = receipts[ticket.ticketId];
     if (receipt?.retry) retry.push(ticket);
     else if (receipt?.error === DEVICE_NOT_REGISTERED) dead.add(ticket.deviceId);
+    else if (receipt?.status === 'ok') received.add(ticket.deviceId);
   }
 
   const cleared = await clearPushTokens(sql, [...dead]);
+  await touchDevices(sql, [...received], now);
   await saveTickets(sql, retry, now);
   return {
     read: due.length,
