@@ -63,6 +63,7 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 
 ## Trampas conocidas
 
+- **Sentry solo con `SENTRY_DSN` y siempre limpio** (A-039): `src/index.ts` exporta `withOptionalSentry`, que envuelve con `withSentry` solo las invocaciones cuyo `env` trae el DSN. Hono atrapa los errores en `app.onError`, así que `withSentry` no los ve: `errorHandler` llama a `captureException` en cada 500. Todo lo que sale pasa por `scrubEvent` y `scrubBreadcrumb` (`src/lib/sentry.ts`). No cambies las opciones sin mantener esos filtros. La v11 del SDK no tiene `sendDefaultPii`: se usa `dataCollection`.
 - **10 ms de CPU por petición en el plan gratuito**: la espera de la base no cuenta, pero el JSON y Zod sí. La clasificación corre solo sobre la ventana de la casa. Nada pesado en una petición.
 - **Una conexión por petición**: el cliente de postgres.js se crea dentro del handler con `env.HYPERDRIVE.connectionString`, nunca a nivel de módulo.
 - **`bigint` en postgres.js** llega como `string` por defecto. Configurar Drizzle con `mode: 'number'` en las columnas de horas (los epoch ms caben en un `number`).

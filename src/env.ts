@@ -28,6 +28,11 @@ export type Bindings = {
   TOKEN_SIGNING_KEY: string;
   /** Secreto de Worker, opcional: token de acceso de Expo Push ("enhanced push security"). */
   EXPO_ACCESS_TOKEN?: string;
+  /**
+   * Secreto de Worker, opcional (B6): el DSN del proyecto de Sentry. Sin él, Sentry no se
+   * inicializa y nada cambia (A-039). Va con `wrangler secret put`, nunca en `wrangler.jsonc`.
+   */
+  SENTRY_DSN?: string;
   ENVIRONMENT: string;
   EXPOSE_DOCS?: string;
   /**

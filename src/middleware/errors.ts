@@ -1,4 +1,5 @@
 import { z } from '@hono/zod-openapi';
+import { captureException } from '@sentry/cloudflare';
 import type { Context, ErrorHandler, NotFoundHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -91,6 +92,7 @@ function fromHttpStatus(status: number): { code: ErrorCode; message: string } {
  * Una `HTTPException` responde con su estado en la forma de la API. Todo error no previsto, y las
  * `HTTPException` 5xx, responden 500 con un mensaje genérico. Al log va el nombre y la pila,
  * nunca las cabeceras ni el cuerpo, y el token se tapa por si un mensaje lo incluyera (regla 7).
+ * Esos 500 también van a Sentry si está activo; un 4xx no es un error nuestro y no va.
  */
 export const errorHandler: ErrorHandler<AppEnv> = (err, c) => {
   if (err instanceof HTTPException && err.status < 500) {
@@ -110,6 +112,9 @@ export const errorHandler: ErrorHandler<AppEnv> = (err, c) => {
     ...(typeof code === 'string' ? { code } : {}),
     stack: redact(err.stack ?? err.name),
   });
+  // Sin cliente de Sentry (sin `SENTRY_DSN`) no hace nada. Hono atrapa el error aquí, así que el
+  // envoltorio de `withSentry` no lo ve; `beforeSend` limpia tokens y encabezados (A-039).
+  captureException(err, { mechanism: { handled: true, type: 'auto.http.hono.error_handler' } });
   const status = err instanceof HTTPException ? err.status : 500;
   return apiError(c, status, 'internal_error', fromHttpStatus(500).message);
 };

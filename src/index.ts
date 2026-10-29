@@ -1,8 +1,10 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { Scalar } from '@scalar/hono-api-reference';
+import type { ExecutionContext } from 'hono';
 import openApiDocument from '../openapi.json';
-import type { AppEnv } from './env';
+import type { AppEnv, Bindings } from './env';
 import { scheduled } from './jobs/scheduled';
+import { withOptionalSentry } from './lib/sentry';
 import { withDb } from './middleware/db';
 import { apiError, errorHandler, notFoundHandler, validationHook } from './middleware/errors';
 import { devices } from './modules/devices';
@@ -68,4 +70,8 @@ export function createApp(options: CreateAppOptions = {}): OpenAPIHono<AppEnv> {
 
 const app = createApp();
 
-export default { fetch: app.fetch, scheduled };
+// Sentry solo se activa en las invocaciones cuyo `env` trae `SENTRY_DSN` (A-039, B6).
+export default withOptionalSentry({
+  fetch: (request: Request, env: Bindings, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  scheduled,
+});
