@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { at } from '../../testing/builders';
-import { reconcileOutages } from './reconcile';
-import type { DetectedOutage } from './types';
+import { reconcileOutages, type StoredOutage } from './reconcile';
+import type { DetectedOutage, OutageStatus } from './types';
+
+/** Un corte guardado, con cualquier estado (incluido `sin_datos`, que pone el cron `sweep`). */
+const stored = (id: string, s: number, e: number | null, status: OutageStatus): StoredOutage => ({
+  ...o(s, e),
+  status,
+  id,
+});
 
 const o = (
   s: number,
@@ -71,4 +78,35 @@ describe('reconcileOutages', () => {
       { op: 'update', id: 'a', outage: o(5, 35) },
       { op: 'update', id: 'b', outage: o(10, 40, 'descartado') },
     ]));
+
+  it('un sin_datos sin pareja no cambia', () =>
+    expect(reconcileOutages([stored('a', 5, null, 'sin_datos')], [])).toEqual([]));
+
+  it('un sin_datos emparejado se actualiza a lo detectado', () =>
+    expect(reconcileOutages([stored('a', 5, null, 'sin_datos')], [o(5, 125)])).toEqual([
+      { op: 'update', id: 'a', outage: o(5, 125) },
+    ]));
+
+  it('un sin_datos emparejado que sigue abierto vuelve a abierto', () =>
+    expect(reconcileOutages([stored('a', 5, null, 'sin_datos')], [o(5, null)])).toEqual([
+      { op: 'update', id: 'a', outage: o(5, null) },
+    ]));
+
+  it('un corte abierto cuyos eventos de inicio ya se purgaron no se reescribe', () =>
+    // la ventana arranca en el minuto 100 porque la retención borró lo anterior (A-042)
+    expect(
+      reconcileOutages([stored('a', 5, null, 'abierto')], [], { windowStart: at(100) }),
+    ).toEqual([]));
+
+  it('un guardado anterior a la ventana tampoco se empareja', () =>
+    expect(
+      reconcileOutages([stored('a', 98, null, 'abierto')], [o(101, 130)], {
+        windowStart: at(100),
+      }),
+    ).toEqual([{ op: 'insert', outage: o(101, 130) }]));
+
+  it('un guardado que empieza justo en el inicio de la ventana sí se reconcilia', () =>
+    expect(
+      reconcileOutages([stored('a', 100, null, 'abierto')], [], { windowStart: at(100) }),
+    ).toEqual([{ op: 'update', id: 'a', outage: o(100, null, 'descartado') }]));
 });

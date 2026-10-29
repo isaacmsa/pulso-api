@@ -49,7 +49,7 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 
 ## Fase 4 · Robustez (S6, ~4,5 h)
 
-- [ ] `sweep`: "sin noticias" (40 min sin latido) y `sin_datos` (24 h abierto sin eventos) (1 h)
+- [x] `sweep`: "sin noticias" (40 min sin latido) y `sin_datos` (24 h abierto sin eventos), y los cortes cuyo inicio ya se purgó fuera de la reconciliación (1 h, A-037, A-038, A-042)
 - [x] Cron `retention`: eventos de 30 días, dispositivos inactivos de 180 días con su casa y registros sin uso de 7 días, en una consulta (1 h, adelantado antes de producción, A-042)
 - [ ] `@sentry/cloudflare` con los filtros de `pulso-app/docs/security-privacy.md` (0,75 h)
 - [ ] Ajuste de umbrales con las confirmaciones, con un test por caso (1,25 h)

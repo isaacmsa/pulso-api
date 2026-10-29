@@ -51,7 +51,11 @@ export async function ingestEvents(
   console.log('clasificación', { homeId: device.homeId, window: ingested.window.length });
 
   const detected = classify(ingested.window, { mode: ingested.mode });
-  const changes = reconcileOutages(ingested.outages, detected).map(
+  // `ingest_batch` ya deja fuera los cortes que empiezan antes de la ventana (A-042); el dominio
+  // aplica la misma regla por si acaso: sin sus eventos de inicio, reescribirlos los destruiría.
+  const changes = reconcileOutages(ingested.outages, detected, {
+    windowStart: ingested.window[0]?.at,
+  }).map(
     (change): repo.IdentifiedChange =>
       change.op === 'insert' ? { op: 'insert', id: uuidv7(), outage: change.outage } : change,
   );

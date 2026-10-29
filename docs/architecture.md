@@ -85,7 +85,7 @@ POST /v1/events (Bearer)
   ← { accepted, duplicated, status }
   → si hay avisos, después de responder (ctx.waitUntil): Expo Push y push_tickets (consulta 4)
 
-cron */5 min (sweep): push de inicio · recibos de Expo Push · sin noticias y sin_datos (fase 4)
+cron */5 min (sweep): push de inicio · recibos de Expo Push · sin noticias y sin_datos (app.mark_stale)
 cron diario (08:00 UTC = 4:00 a. m. en Caracas): retención
 ```
 

@@ -81,17 +81,19 @@ Con corte abierto:
 | Reporte y snapshot con la misma `at` | Se ordenan por `id`, como cualquier empate. El resultado no depende del orden en que lleguen |
 | `confirmation` | Se aplica al corte cuyo `start` esté a `CONFIRMATION_TOLERANCE_MS` o menos de `outageStart`. Si cae en la tolerancia de varios cortes, va al de `start` más cercano (en empate, al más temprano). Si hay varias confirmaciones, manda la última. `answer: false` deja el corte `descartado` con `confirmed: false`; `answer: true` deja `confirmed: true` |
 
-En el servidor, un corte `abierto` que pasa 24 horas sin eventos nuevos queda `sin_datos` y no suma horas. Es una regla de tiempo y vive en el cron `sweep`, no en el clasificador.
+En el servidor, un corte `abierto` que pasa 24 horas sin eventos nuevos queda `sin_datos` y no suma horas. Es una regla de tiempo y vive en el cron `sweep` (`app.mark_stale`, A-038), no en el clasificador. Si después llegan eventos atrasados, la reconciliación lo vuelve a ver (abajo).
 
 ## Del clasificador a la base
 
-`classify` devuelve los cortes de la ventana de la casa. `reconcileOutages` los compara con los que ya están guardados y devuelve solo los cambios (`src/domain/detection/reconcile.ts`). No genera ids: el servicio pone el uuid v7 de los inserts.
+`classify` devuelve los cortes de la ventana de la casa. `reconcileOutages(stored, detected, { windowStart })` los compara con los que ya están guardados y devuelve solo los cambios (`src/domain/detection/reconcile.ts`). No genera ids: el servicio pone el uuid v7 de los inserts.
 
 - **Emparejamiento:** uno a uno, en orden de `start`. Cada corte detectado toma el guardado libre de `start` más cercano que esté a `RECONCILE_TOLERANCE_MS` (5 min) o menos. En empate, el de `start` más temprano. Un guardado se usa una sola vez.
 - **Par igual** (mismos `start`, `end`, `status`, `confidence` y `confirmed`): no hay cambio.
 - **Par distinto:** `update` del mismo `id` con lo detectado. Así un corte que se cierra, o cuyo inicio se mueve un poco, sigue siendo el mismo.
 - **Detectado sin pareja:** `insert`.
-- **Guardado sin pareja:** `update` a `descartado`, con sus horas intactas. Si ya estaba `descartado`, no hay cambio.
+- **Guardado sin pareja:** `update` a `descartado`, con sus horas intactas. Si ya estaba `descartado` o `sin_datos`, no hay cambio: un `sin_datos` solo cambia cuando unos eventos atrasados lo vuelven a detectar.
+- **`sin_datos` emparejado:** como cualquier par distinto, `update` a lo detectado (`cerrado`, `abierto` o `descartado`; A-038). Lo guardado acepta los cuatro estados (`StoredOutage.status`), lo detectado nunca trae `sin_datos`.
+- **Guardado que empieza antes de la ventana** (`windowStart`, el `at` del primer evento de la ventana): queda fuera, ni se empareja ni se reescribe. Pasa cuando la retención borró los eventos de su inicio: el clasificador ya no lo puede ver y sin esta regla quedaría `descartado` (A-042). `ingest_batch` ya no los devuelve; el dominio aplica la misma regla por si acaso.
 - **Orden de salida:** primero los cambios de los detectados (por `start`) y después los descartes (por `start`).
 
 `deriveHomeStatus` (`src/domain/detection/home-status.ts`) calcula el estado de la casa con lo detectado:
@@ -126,3 +128,5 @@ Viven en `src/domain/detection/*.test.ts` y corren con `pnpm test`. El código e
 | | | Con dos cortes dentro de la tolerancia va al de inicio más cercano |
 
 Además, `detect-outages.property.test.ts` prueba la propiedad de los snapshots repetidos en los dos modos: genera miles de líneas de tiempo con reportes (semilla fija, así siempre son las mismas), mete la copia de un snapshot antes del evento siguiente y exige el mismo resultado.
+
+`reconcile.test.ts` cubre la reconciliación, con "un sin_datos sin pareja no cambia", "un sin_datos emparejado se actualiza a lo detectado" y "un corte abierto cuyos eventos de inicio ya se purgaron no se reescribe" (A-042, también en `test/integration/ingest-functions.test.ts` y `test/integration/staleness.test.ts`).

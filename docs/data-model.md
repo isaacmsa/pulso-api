@@ -119,7 +119,7 @@ app.apply_outages(p_home_id uuid, p_revision bigint, p_changes jsonb,
 --   notify: [{ kind, homeId, outageStart, outageEnd, alias, targets: [{ deviceId, pushToken, alias }] }] }
 ```
 
-`apply_outages` se reemplazó en `drizzle/0003_push_notifications.sql` (`CREATE OR REPLACE`, misma firma y mismos permisos), que también agrega `outages.created_at`.
+`apply_outages` se reemplazó en `drizzle/0003_push_notifications.sql` (`CREATE OR REPLACE`, misma firma y mismos permisos), que también agrega `outages.created_at`. `ingest_batch` se reemplazó en `drizzle/0004_staleness.sql` (igual), que también agrega `mark_stale` (ver "Sin noticias y `sin_datos`").
 
 ```sql
 app.replace_share_code(p_home_id uuid, p_code text) RETURNS text
@@ -135,7 +135,7 @@ app.replace_share_code(p_home_id uuid, p_code text) RETURNS text
 - Si `accepted = 0` y `pending_anchor` no es `NULL` (un lote anterior guardó eventos y su `apply_outages` no aplicó), sube la revisión y devuelve la ventana desde `pending_anchor` igual que si hubiera aceptado algo. El Worker clasifica y aplica: 3 consultas solo en ese caso (A-024).
 - `status` es el `{ state, since }` de `homes` leído en el mismo `UPDATE … RETURNING` que sube la revisión, con la fila bloqueada. Ya incluye todo `apply_outages` que aplicó antes, y la revisión nueva hace que ninguno aplique después sin que este lote lo note. Por eso `deriveHomeStatus` parte de este estado y no del de la auth (A-023).
 - `window`: los eventos de la casa en la ventana, ordenados por `(at, id)`. Cada uno es su `payload` con `at` ya corregido.
-- `outages`: `{ id, start, end, status, confidence, confirmed }`, ordenados por `start`. Son los guardados que `reconcileOutages` compara con lo detectado.
+- `outages`: `{ id, start, end, status, confidence, confirmed }`, ordenados por `start`. Son los guardados que `reconcileOutages` compara con lo detectado: los que empiezan en la ventana, de cualquier estado. Un `sin_datos` entra para que unos eventos atrasados lo reclasifiquen en vez de duplicarlo (A-038). Uno que empieza antes de `from` queda fuera, también si sigue `abierto`: sus eventos de inicio ya no están y la reconciliación lo reescribiría a `descartado` (A-042).
 
 **La ventana de la casa:**
 
@@ -152,8 +152,10 @@ from    = at del último snapshot powered de la casa con at < anchor,
           donde powered = plugged AND coalesce(homeWifi, onWifi) sobre el payload;
           si no hay ninguno, el at más viejo de la casa
 window  = eventos de la casa con at >= from
-outages = cortes de la casa con status <> 'sin_datos' y (status = 'abierto' o started_at >= from)
+outages = cortes de la casa con started_at >= from (cualquier estado, incluidos abierto y sin_datos)
 ```
+
+Un `sin_datos` no amplía el ancla: no se cierra solo, así que arrastraría la ventana hasta su inicio en cada lote. Entra en `outages` solo si empieza en la ventana, que en el modo base es lo normal: dentro de un corte no hay snapshots `powered`, así que `from` cae antes de su inicio. Un corte `abierto` cuyo inicio se purgó sí amplía el ancla hasta su `started_at`, pero como no queda snapshot `powered` antes, `from` es el evento más viejo de la casa y el corte queda fuera de `outages`.
 
 Empezar en un snapshot `powered` reproduce el estado exacto del clasificador: armado y sin corte abierto. Por eso el ancla nunca cae dentro de un corte guardado. Un corte manual sigue abierto aunque lleguen snapshots `powered` repetidos, y empezar a mitad de él haría que el clasificador inventara otro corte, por ejemplo con un evento atrasado que cae dentro de un corte manual ya cerrado. `outageStart` no lleva desfase, porque es la hora del servidor que el teléfono devuelve.
 
@@ -175,6 +177,24 @@ Y marca los avisos (A-031 a A-034, regla 11), en la misma transacción:
 - Si el teléfono de la casa tiene `push_token`, marca `confirm_asked_at` en los que deja `cerrado`, sin respuesta y sin marca: siempre con confianza `media`; con `alta`, hasta completar 2 de `alta` en las últimas 24 h de la casa, del más viejo al más nuevo. `manual` nunca.
 - `notify` trae un elemento por aviso marcado, con sus destinatarios: los seguidores con `push_token` (cada uno con el alias que le puso a la casa en `follows`) o, para `confirm`, el teléfono de la casa. Un mismo `push_token` va una sola vez. Un aviso sin destinatarios queda marcado y no se devuelve. Si la revisión no coincide, `notify` es `[]`.
 
+## Sin noticias y `sin_datos`
+
+```sql
+app.mark_stale(p_now bigint) RETURNS jsonb
+-- { noNews, noData }: casas que pasaron a sin_noticias y cortes que pasaron a sin_datos
+```
+
+**`mark_stale`** (`drizzle/0004_staleness.sql`, A-037, A-038) es la última consulta de cada pasada del cron `sweep` (`markStale` en `src/jobs/sweep.ts`). Tiene las mismas propiedades que las de ingesta. En orden:
+
+1. Bloquea en orden de id (`SELECT … ORDER BY id FOR UPDATE`) las casas candidatas: las que tienen un corte `abierto` y ningún evento con `received_at > p_now − 86 400 000`, y las que no están en `sin_noticias`, no tienen corte `abierto` y cuyo teléfono tiene `max(last_seen_at) <= p_now − 2 400 000`. Bloquea la casa antes que sus cortes, como `apply_outages`, así que no se interbloquean, y un lote de esas casas espera.
+2. Pasa a `sin_datos` cada corte `abierto` de esas casas sin eventos nuevos en 24 h (`ended_at` sigue en `NULL`). "Eventos nuevos" se mide con `received_at`, la hora del servidor: unos eventos que el teléfono tenía en cola y sube tarde son noticias aunque su `at` sea viejo.
+3. Pasa a `sin_noticias`, con `status_since` = el último latido (`max(last_seen_at)` de sus teléfonos), cada casa candidata que no está en `sin_noticias`, cuyo teléfono no tiene latido desde hace 40 min o más y que no tiene corte `abierto`, ya contando los del paso 2. Un corte abierto deja la casa en `sin_luz`: sin luz el teléfono puede quedarse sin datos.
+4. Sube `ingest_revision` de cada casa que tocó (A-023): un lote que ya pasó por `ingest_batch` no aplica encima un estado calculado antes.
+
+La vuelta la hace la consulta de auth (`authenticate`, sigue siendo 1 consulta): un CTE más devuelve a `con_luz` desde `now`, y sube la revisión, la casa del dispositivo que se autentica si está en `sin_noticias` y sin corte `abierto`. Un seguidor no tiene `home_id` y no toca ninguna casa.
+
+Un `sin_datos` no suma horas, no es el corte abierto de la casa (`openOutageStart`) y no reclama push de inicio. Entra en la reconciliación si empieza en la ventana de un lote (ver arriba): emparejado, toma lo detectado; sin pareja, no cambia (nunca pasa a `descartado`). Si queda `cerrado`, `apply_outages` avisa como en cualquier cierre: resumen tardío si nunca tuvo inicio, regreso si lo tuvo.
+
 ## Retención
 
 | Dato | Se guarda | Cómo se borra |
@@ -187,9 +207,9 @@ Y marca los avisos (A-031 a A-034, regla 11), en la misma transacción:
 
 `retention` es `runRetention` de `src/jobs/retention.ts`: **una consulta** con tres `DELETE` en CTE (todos ven la misma foto de la base), que devuelve cuántas filas borró de cada tipo y las deja en el log. Corre con el cron `0 8 * * *` (8:00 UTC) que `src/jobs/scheduled.ts` despacha, en staging y producción (A-042). Un dispositivo inactivo se borra junto con su casa, igual que `DELETE /v1/devices/me`; las cascadas disparan al terminar la consulta. Un registro sin uso de más de 180 días se cuenta una sola vez, como inactivo.
 
-Interacción con los cortes: un corte `abierto` de más de 30 días pierde los eventos de su inicio, así que la ventana de `ingest_batch` arranca a mitad del corte. La reconciliación no reescribe los cortes guardados con `started_at` anterior al `from` de la ventana (tarea 4.1, A-042); hasta entonces ese corte se reescribiría a `descartado`.
+Interacción con los cortes: un corte `abierto` de más de 30 días pierde los eventos de su inicio, así que la ventana de `ingest_batch` arranca a mitad del corte. Ni `ingest_batch` lo devuelve ni `reconcileOutages` (opción `windowStart`) lo empareja o lo reescribe: queda como está (A-042). Sin eso se reescribiría a `descartado`.
 
-Un corte `abierto` que pasa 24 horas sin eventos nuevos de su casa queda `sin_datos` y no suma horas sin luz.
+Un corte `abierto` que pasa 24 horas sin eventos nuevos de su casa queda `sin_datos` y no suma horas sin luz (cron `sweep`, ver "Sin noticias y `sin_datos`").
 
 ## Volumen
 
@@ -199,7 +219,7 @@ El teléfono sube un snapshot solo si cambió `(plugged, onWifi, homeWifi, inter
 | --- | --- | --- | --- |
 | Latidos (96 de 15 min) | 96 | 96 | 0 |
 | Lotes con cambios y reportes | ~20 | ~60 (auth, `ingest_batch`, `apply_outages`) | ~10 a 30 |
-| Cron `sweep` (2 consultas cada 5 min, ~576 al día entre todas las casas) | | ~1 | |
+| Cron `sweep` (3 consultas cada 5 min, ~864 al día entre todas las casas) | | ~1 | |
 | Push de un corte (tickets de los avisos, solo cuando sale uno) | | ~0,1 | |
 | **Total** | **~116** | **~157** | **~20** |
 

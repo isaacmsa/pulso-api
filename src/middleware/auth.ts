@@ -21,6 +21,11 @@ type AuthRow = {
 /**
  * Autentica y registra el latido en **una sola consulta** (A-004): el `UPDATE … RETURNING` de
  * `devices`, la casa y su corte abierto. Con `diagnostics` también los guarda.
+ *
+ * Si la casa del dispositivo estaba en `sin_noticias` (el cron `sweep`) y no tiene corte abierto,
+ * la misma consulta la devuelve a `con_luz` desde `now` y sube su revisión (A-037, A-023). Solo
+ * la casa del propio dispositivo: un seguidor no tiene `home_id` y no toca ninguna. El `SELECT`
+ * final no ve lo que escribe el CTE, así que el estado sale de su `RETURNING`.
  */
 export async function authenticate(
   sql: postgres.Sql,
@@ -37,11 +42,25 @@ export async function authenticate(
       UPDATE app.devices SET last_seen_at = ${now} ${setDiagnostics}
       WHERE token_hash = ${tokenHash}
       RETURNING id, home_id
+    ),
+    revived AS (
+      UPDATE app.homes AS h
+      SET status = 'con_luz', status_since = ${now}, ingest_revision = h.ingest_revision + 1
+      FROM device
+      WHERE h.id = device.home_id
+        AND h.status = 'sin_noticias'
+        AND NOT EXISTS (
+          SELECT 1 FROM app.outages o WHERE o.home_id = h.id AND o.status = 'abierto'
+        )
+      RETURNING h.id, h.status, h.status_since
     )
-    SELECT device.id, device.home_id, h.mode, h.status, h.status_since, h.alias,
-           open_outage.started_at AS open_outage_start
+    SELECT device.id, device.home_id, h.mode,
+           coalesce(revived.status, h.status) AS status,
+           coalesce(revived.status_since, h.status_since) AS status_since,
+           h.alias, open_outage.started_at AS open_outage_start
     FROM device
     LEFT JOIN app.homes h ON h.id = device.home_id
+    LEFT JOIN revived ON revived.id = device.home_id
     LEFT JOIN LATERAL (
       SELECT o.started_at FROM app.outages o
       WHERE o.home_id = device.home_id AND o.status = 'abierto'

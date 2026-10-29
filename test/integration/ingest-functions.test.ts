@@ -273,19 +273,65 @@ describe('funciones de ingesta', () => {
     expect(result.outages).toEqual([{ id: outageId, ...outage }]);
   });
 
-  it('deja fuera de la ventana los cortes sin_datos', async () => {
+  it('devuelve los cortes sin_datos que caen en la ventana', async () => {
     const home = await createHome(sql);
-    await ingestApplied(home, [snap(0, true, true)]);
-    await storeOutage(home.homeId, {
+    await ingestApplied(home, [snap(0, true, true), snap(5, false, false)]);
+    const outage = {
       start: at(5),
       end: null,
       status: 'sin_datos' as DetectedOutage['status'],
-      confidence: 'alta',
+      confidence: 'alta' as const,
+      confirmed: null,
+    };
+    const outageId = await storeOutage(home.homeId, outage);
+
+    // eventos atrasados: la luz volvió a las 8:15 p. m.
+    const result = await ingest(home, [snap(135, true, true)]);
+
+    expect(result.window[0]?.at).toBe(at(0));
+    expect(result.outages).toEqual([{ id: outageId, ...outage }]);
+  });
+
+  it('un corte sin_datos no amplía la ventana', async () => {
+    const home = await createHome(sql);
+    await ingestApplied(home, [snap(0, true, true)]);
+    await ingestApplied(home, [report(1, 'sin_luz')]);
+    // un snapshot powered repetido dentro del corte manual
+    await ingestApplied(home, [snap(2, true, true, { internet: false })]);
+    await storeOutage(home.homeId, {
+      start: at(1),
+      end: null,
+      status: 'sin_datos' as DetectedOutage['status'],
+      confidence: 'manual',
       confirmed: null,
     });
 
-    const result = await ingest(home, [snap(10, false, false)]);
+    // un sin_datos no se cierra solo: si ampliara la ventana, la arrastraría hasta su inicio en
+    // cada lote. La ventana arranca en el powered anterior y el corte queda fuera.
+    const result = await ingest(home, [snap(30, false, false)]);
 
+    expect(result.window[0]?.at).toBe(at(2));
+    expect(result.outages).toEqual([]);
+  });
+
+  it('un corte abierto cuyos eventos de inicio ya se purgaron no se reescribe', async () => {
+    const home = await createHome(sql);
+    await ingestApplied(home, [snap(0, true, true), snap(5, false, false)]);
+    await storeOutage(home.homeId, {
+      start: at(5),
+      end: null,
+      status: 'abierto',
+      confidence: 'alta',
+      confirmed: null,
+    });
+    await ingestApplied(home, [snap(100, true, false)]);
+    // la retención borró los eventos de su inicio (A-042)
+    await sql`DELETE FROM app.events WHERE home_id = ${home.homeId} AND at < ${at(100)}`;
+
+    const result = await ingest(home, [snap(200, false, false)]);
+
+    // la ventana arranca a mitad del corte: el corte queda fuera de la reconciliación
+    expect(result.window[0]?.at).toBe(at(100));
     expect(result.outages).toEqual([]);
   });
 
