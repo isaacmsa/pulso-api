@@ -5,9 +5,10 @@ ALTER TABLE "app"."outages" ADD COLUMN "created_at" bigint;--> statement-breakpo
 -- también los cortes que va a actualizar (en orden de id):
 --   · cada insert sella created_at = p_now (A-033: el push de inicio sale solo si el servidor
 --     conoce el corte desde hace 30 min o menos; lo reclama el cron sweep, no esta función);
---   · un corte que esta llamada deja descartado tiene por identidad otro corte de esta llamada:
---     el que contiene su aviso de inicio, o, sin inicio, el que se solapa con él con el
---     started_at más cercano; si esa identidad queda sin descartar (insert o update), le pasa sus
+--   · un corte que esta llamada deja descartado tiene por identidad un corte de esta llamada:
+--     con aviso de inicio, el que ese aviso anunció (nunca uno que empezó después); sin inicio,
+--     el que se solapa con él con el started_at más cercano y empezó antes de que el servidor lo
+--     conociera; si esa identidad es otro corte y queda sin descartar (insert o update), le pasa sus
 --     marcas, y a un insert también su created_at (A-032): reclasificar no repite el inicio ni
 --     manda un "volvió la luz" de un corte que sigue;
 --   · marca end_notified_at en cada corte que esta llamada deja cerrado (regreso o resumen tardío),
@@ -94,20 +95,28 @@ BEGIN
 
     -- A-032: el corte cambió de id, o una reconciliación posterior revive el viejo y descarta el
     -- nuevo. La identidad de cada corte G que esta llamada deja descartado se busca entre los
-    -- otros cortes de esta llamada (insert o update, descartado o no, con su intervalo nuevo;
-    -- abierto = hasta el infinito):
-    --   1. si G tuvo push de inicio, el que contiene start_notified_at: el sweep solo reclama
-    --      cortes abiertos, así que ese instante cae dentro del corte que el aviso anunció;
-    --   2. si G tuvo inicio y ninguno lo contiene, G es su propia identidad (no hay heredero);
-    --   3. sin inicio, el que se solapa con G (su intervalo de antes) con el started_at más
-    --      cercano: la cercanía de reconcileOutages, sin su tope de 5 min.
-    -- Entre varios candidatos gana el de started_at más cercano. Si la identidad queda sin
-    -- descartar es su heredero: toma las marcas que no tenía y, si es un insert, también el
-    -- created_at (el más viejo; NULL si alguno es de antes de 0003). Si no hay heredero, G avisa
-    -- su fin, y un corte posterior del mismo lote no hereda un inicio que no es suyo. G conserva
-    -- sus marcas (son lo que de verdad se le avisó), salvo confirm_asked_at, que se mueve al
-    -- heredero: así el cupo de alta no cuenta dos veces la misma pregunta. Va antes del UPDATE de
-    -- abajo, que no toca marcas.
+    -- cortes de esta llamada (insert o update, descartado o no, con su intervalo nuevo; abierto =
+    -- hasta el infinito). Si G tuvo push de inicio, es el corte que ese aviso anunció:
+    --   1. otro corte que contiene start_notified_at (el sweep solo reclama cortes abiertos, así
+    --      que ese instante cae dentro del corte anunciado);
+    --   2. si no, G mismo, si su intervalo nuevo lo contiene y el clasificador lo movió (un G
+    --      que reconcileOutages dejó sin pareja llega con su intervalo de antes, que siempre
+    --      contiene el aviso: no cuenta);
+    --   3. si no, otro corte que empezó en start_notified_at o antes y se solapa con G (su
+    --      intervalo de antes): el anunciado terminó antes del aviso, pero ya existía. Uno que
+    --      empezó después del aviso nunca es el anunciado;
+    --   4. si no, G mismo.
+    -- Sin push de inicio, otro corte que se solapa con G (su intervalo de antes) y que empezó
+    -- cuando el servidor ya conocía G o antes (created_at; updated_at en las filas de antes de
+    -- 0003): uno que empezó después no es G. Es la cercanía de reconcileOutages, sin su tope de
+    -- 5 min. Entre varios candidatos de la misma regla gana el de started_at más cercano al de G
+    -- (y, empatados, el más temprano). Si la identidad es otro corte que queda sin descartar, es
+    -- su heredero: toma las marcas que no tenía y, si es un insert, también el created_at (el más
+    -- viejo; NULL si alguno es de antes de 0003). Si no hay heredero (la identidad es G o quedó
+    -- descartada), G avisa su fin, y ningún otro corte hereda un inicio que no es suyo. G
+    -- conserva sus marcas (son lo que de verdad se le avisó), salvo confirm_asked_at, que se
+    -- mueve al heredero: así el cupo de alta no cuenta dos veces la misma pregunta. Va antes del
+    -- UPDATE de abajo, que no toca marcas.
     WITH touched AS (
       SELECT (c->>'id')::uuid AS id,
              c->>'op' = 'insert' AS is_insert,
@@ -116,22 +125,40 @@ BEGIN
              coalesce((c->'outage'->>'end')::bigint, 9223372036854775807) AS ended_at
       FROM jsonb_array_elements(p_changes) AS c
     ),
-    identities AS (
-      SELECT DISTINCT ON (g.id) g.id AS old_id, n.id AS new_id, n.is_insert, n.is_live
+    candidates AS (
+      SELECT g.id AS old_id, n.id AS new_id, n.is_insert, n.is_live,
+             abs(n.started_at - g.started_at) AS distance, n.started_at,
+             CASE
+               WHEN g.start_notified_at IS NULL THEN 3
+               WHEN NOT (n.started_at <= g.start_notified_at AND g.start_notified_at <= n.ended_at)
+                 THEN 3
+               WHEN n.id <> g.id THEN 1
+               -- G mismo solo si el clasificador lo movió: un huérfano de reconcileOutages llega
+               -- con su intervalo viejo, que siempre contiene el aviso y no prueba nada
+               WHEN (n.started_at, n.ended_at)
+                    IS DISTINCT FROM (g.started_at, coalesce(g.ended_at, 9223372036854775807))
+                 THEN 2
+               ELSE 3
+             END AS rule
       FROM app.outages AS g
       JOIN touched AS n
-        ON n.id <> g.id
-       AND CASE
-             WHEN g.start_notified_at IS NOT NULL
-               THEN n.started_at <= g.start_notified_at AND g.start_notified_at <= n.ended_at
-             ELSE n.started_at < coalesce(g.ended_at, 9223372036854775807)
-                  AND g.started_at < n.ended_at
-           END
+        ON (n.started_at < coalesce(g.ended_at, 9223372036854775807)   -- se solapa con G de antes
+            AND g.started_at < n.ended_at)
+        OR (g.start_notified_at IS NOT NULL                             -- o contiene su inicio
+            AND n.started_at <= g.start_notified_at AND g.start_notified_at <= n.ended_at)
       WHERE g.id = ANY(v_dropped) AND g.home_id = p_home_id
-      ORDER BY g.id, abs(n.started_at - g.started_at), n.started_at, n.id
+    ),
+    identities AS (
+      SELECT DISTINCT ON (c.old_id) c.old_id, c.new_id, c.is_insert, c.is_live
+      FROM candidates AS c
+      JOIN app.outages AS g ON g.id = c.old_id
+      WHERE c.rule IN (1, 2)
+         OR (c.new_id <> c.old_id
+             AND c.started_at <= coalesce(g.start_notified_at, g.created_at, g.updated_at))
+      ORDER BY c.old_id, c.rule, c.distance, c.started_at, c.new_id
     ),
     heirs AS (
-      SELECT old_id, new_id, is_insert FROM identities WHERE is_live
+      SELECT old_id, new_id, is_insert FROM identities WHERE is_live AND new_id <> old_id
     ),
     inherited AS (
       SELECT h.new_id,

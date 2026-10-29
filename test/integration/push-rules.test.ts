@@ -535,6 +535,80 @@ describe('reglas de push', () => {
     ]);
   });
 
+  it('un corte que cambia de id y ya terminó cuando salió su inicio manda un solo regreso', async () => {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    await post(casa.token, 11, [snap(0, true, true), snap(10, false, false)]);
+    await sweep(21);
+
+    // llega tarde: el corte de las 6:10 empezó a las 6:01 (otro id) y terminó a las 6:18, antes
+    // del aviso de las 6:21. El aviso anunció ese corte: hereda el inicio y manda su regreso
+    await post(casa.token, 30, [snap(1, false, true), snap(3, false, false), snap(18, true, true)]);
+    await sweep(31);
+
+    expect(bodies()).toEqual([
+      'ExponentPushToken[hija] Se fue la luz en Casa de mamá (6:10 p. m.)',
+      'ExponentPushToken[hija] Volvió la luz en Casa de mamá tras 17 min',
+      'ExponentPushToken[casa] ¿Se fue la luz de 6:01 a 6:18 p. m.?',
+    ]);
+    expect(ofType('late')).toEqual([]);
+    expect(await outageMarks(casa.homeId)).toMatchObject([
+      {
+        start: at(1),
+        status: 'cerrado',
+        createdAt: at(11),
+        startNotified: at(21),
+        endNotified: at(30),
+        confirmAsked: at(30),
+      },
+      { start: at(10), status: 'descartado', startNotified: at(21), endNotified: null },
+    ]);
+  });
+
+  it('un corte que se acorta a menos de 10 min después de su inicio manda volvió la luz una vez', async () => {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    await post(casa.token, 11, [snap(0, true, true), snap(10, false, false)]);
+    await sweep(21);
+
+    // llega tarde: el mismo corte volvió a las 6:18; de 6:10 a 6:18 no llega a 10 min
+    await post(casa.token, 30, [snap(18, true, true)]);
+    await sweep(31);
+
+    expect(bodies()).toEqual([
+      'ExponentPushToken[hija] Se fue la luz en Casa de mamá (6:10 p. m.)',
+      'ExponentPushToken[hija] Volvió la luz en Casa de mamá',
+    ]);
+    expect(await outageMarks(casa.homeId)).toMatchObject([
+      { start: at(10), status: 'descartado', startNotified: at(21), endNotified: at(30) },
+    ]);
+  });
+
+  it('un corte posterior no hereda el created_at de un corte sin inicio y manda su propio inicio', async () => {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    // el servidor conoce el corte de las 6:10 desde las 6:11; el sweep todavía no avisó
+    await post(casa.token, 11, [snap(0, true, true), snap(10, false, false)]);
+
+    // llega tarde: ese corte (mismo id) se descartó a las 6:25, y a las 6:35 empezó otro
+    await post(casa.token, 40, [
+      snap(6, false, true),
+      snap(7, false, false),
+      snap(25, false, true),
+      snap(30, true, true),
+      snap(35, false, false),
+    ]);
+    expect(await outageMarks(casa.homeId)).toMatchObject([
+      { start: at(6), status: 'descartado', createdAt: at(11), startNotified: null },
+      { start: at(35), status: 'abierto', createdAt: at(40), startNotified: null },
+    ]);
+
+    await sweep(46);
+    expect(bodies()).toEqual([
+      'ExponentPushToken[hija] Se fue la luz en Casa de mamá (6:35 p. m.)',
+    ]);
+  });
+
   it('un corte que va y vuelve entre dos ids manda un solo inicio y un solo regreso', async () => {
     const casa = await home();
     await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
