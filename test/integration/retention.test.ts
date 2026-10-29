@@ -91,7 +91,13 @@ describe('retención diaria', () => {
 
     const result = await runRetention(sql, NOW);
 
-    expect(result).toEqual({ events: 0, inactiveDevices: 0, homes: 0, unusedDevices: 0 });
+    expect(result).toEqual({
+      events: 0,
+      inactiveDevices: 0,
+      homes: 0,
+      unusedDevices: 0,
+      oldOutages: 0,
+    });
     expect(await count('devices')).toBe(1);
     expect(await count('homes')).toBe(1);
   });
@@ -103,7 +109,13 @@ describe('retención diaria', () => {
 
     const result = await runRetention(sql, NOW);
 
-    expect(result).toEqual({ events: 0, inactiveDevices: 0, homes: 0, unusedDevices: 0 });
+    expect(result).toEqual({
+      events: 0,
+      inactiveDevices: 0,
+      homes: 0,
+      unusedDevices: 0,
+      oldOutages: 0,
+    });
     expect(await count('devices')).toBe(2);
     expect(await count('homes')).toBe(1);
   });
@@ -130,7 +142,13 @@ describe('retención diaria', () => {
 
     const result = await runRetention(sql, NOW);
 
-    expect(result).toEqual({ events: 0, inactiveDevices: 0, homes: 0, unusedDevices: 1 });
+    expect(result).toEqual({
+      events: 0,
+      inactiveDevices: 0,
+      homes: 0,
+      unusedDevices: 1,
+      oldOutages: 0,
+    });
     const left = await sql`SELECT 1 FROM app.devices WHERE id = ${id}`;
     expect(left).toHaveLength(0);
   });
@@ -180,17 +198,67 @@ describe('retención diaria', () => {
     expect(await count('devices')).toBe(0);
   });
 
+  async function insertOutage(homeId: string, startedAt: number, status: string, endedAt?: number) {
+    const id = randomUUID();
+    await sql`
+      INSERT INTO app.outages (id, home_id, started_at, ended_at, status, confidence, updated_at)
+      VALUES (${id}, ${homeId}, ${startedAt}, ${endedAt ?? null}, ${status}, 'alta', ${startedAt})`;
+    return id;
+  }
+
+  const statusOf = async (id: string) =>
+    (await sql<{ status: string }[]>`SELECT status FROM app.outages WHERE id = ${id}`)[0]?.status;
+
+  it('un corte abierto que empezó hace más de 30 días pasa a sin_datos', async () => {
+    // A-042: sus eventos de inicio se borran en esta misma pasada
+    const { homeId, deviceId } = await createHome(sql, { since: NOW - 40 * DAY });
+    await sql`UPDATE app.devices SET last_seen_at = ${NOW} WHERE id = ${deviceId}`;
+    const old = await insertOutage(homeId, NOW - 30 * DAY - 1, 'abierto');
+    const recent = await insertOutage(homeId, NOW - 30 * DAY, 'abierto'); // en el límite: se queda
+    const closed = await insertOutage(homeId, NOW - 35 * DAY, 'cerrado', NOW - 34 * DAY);
+
+    const result = await runRetention(sql, NOW);
+
+    expect(result.oldOutages).toBe(1);
+    expect(await statusOf(old)).toBe('sin_datos');
+    expect(await statusOf(recent)).toBe('abierto');
+    expect(await statusOf(closed)).toBe('cerrado');
+    const [row] = await sql<{ updatedAt: number }[]>`
+      SELECT updated_at::float8 AS "updatedAt" FROM app.outages WHERE id = ${old}`;
+    expect(row?.updatedAt).toBe(NOW);
+  });
+
+  it('un corte viejo de una casa que se borra en la misma pasada no se cuenta', async () => {
+    const { homeId, deviceId } = await createHome(sql, { since: NOW - 300 * DAY });
+    await sql`UPDATE app.devices SET last_seen_at = ${NOW - 181 * DAY} WHERE id = ${deviceId}`;
+    await insertOutage(homeId, NOW - 200 * DAY, 'abierto');
+
+    const result = await runRetention(sql, NOW);
+
+    expect(result).toMatchObject({ homes: 1, oldOutages: 0 });
+    expect(await count('outages')).toBe(0);
+  });
+
   it('gasta una sola consulta', async () => {
     const { homeId, deviceId } = await createHome(sql, { since: NOW - 300 * DAY });
     await sql`UPDATE app.devices SET last_seen_at = ${NOW - 181 * DAY} WHERE id = ${deviceId}`;
     await insertEvent(deviceId, homeId, NOW - 40 * DAY);
     await createBareDevice({ createdAt: NOW - 8 * DAY });
+    const alive = await createHome(sql, { since: NOW - 40 * DAY });
+    await sql`UPDATE app.devices SET last_seen_at = ${NOW} WHERE id = ${alive.deviceId}`;
+    await insertOutage(alive.homeId, NOW - 31 * DAY, 'abierto');
     queries = 0;
 
     const result = await runRetention(counted.sql, NOW);
 
     expect(queries).toBe(1);
-    expect(result).toEqual({ events: 1, inactiveDevices: 1, homes: 1, unusedDevices: 1 });
+    expect(result).toEqual({
+      events: 1,
+      inactiveDevices: 1,
+      homes: 1,
+      unusedDevices: 1,
+      oldOutages: 1,
+    });
   });
 });
 

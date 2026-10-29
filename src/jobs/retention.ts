@@ -16,10 +16,12 @@ export type RetentionResult = {
   homes: number;
   /** Registros de más de 7 días que nunca mandaron nada, ni siguen una casa. */
   unusedDevices: number;
+  /** Cortes `abierto` que empezaron hace más de 30 días y pasaron a `sin_datos` (A-042). */
+  oldOutages: number;
 };
 
 /**
- * La retención diaria, en UNA consulta (regla 5). Las tres reglas son `DELETE` en CTE, que ven
+ * La retención diaria, en UNA consulta (regla 5). Tres `DELETE` y un `UPDATE` en CTE, que ven
  * todos la misma foto de la base:
  *
  * - `events` con `at` de más de 30 días.
@@ -29,6 +31,13 @@ export type RetentionResult = {
  *   y los follows, eventos y tickets del dispositivo se van por cascada, al final de la consulta.
  * - `devices` con más de 7 días que nunca mandaron nada: sin casa, sin follows y con
  *   `last_seen_at = created_at`.
+ *
+ * - Cortes `abierto` que empezaron hace más de 30 días pasan a `sin_datos` (A-042): sus eventos de
+ *   inicio se borran en esta misma pasada, el clasificador ya no los puede ver y quedarían abiertos
+ *   para siempre. No se tocan los de las casas que se borran aquí. No sube `ingest_revision`: el
+ *   estado de la casa no cambia y ese corte ya queda fuera de toda reconciliación, así que un lote
+ *   en vuelo no puede pisar nada; y bloquear la casa después del corte invertiría el orden de
+ *   `mark_stale` (casa y luego cortes), que corre a la misma hora (8:00 UTC).
  *
  * Los dos criterios de `devices` salen de un solo `doomed`: un registro sin uso de más de 180 días
  * cumple los dos y se borra y se cuenta una vez (como inactivo). Un dispositivo del segundo grupo
@@ -40,7 +49,13 @@ export async function runRetention(sql: postgres.Sql, now: number): Promise<Rete
   const unusedBefore = now - UNUSED_REGISTRATION_MS;
 
   const [row] = await sql<
-    { events: number; inactive_devices: number; homes: number; unused_devices: number }[]
+    {
+      events: number;
+      inactive_devices: number;
+      homes: number;
+      unused_devices: number;
+      old_outages: number;
+    }[]
   >`
     WITH old_events AS (
       DELETE FROM app.events WHERE at < ${eventsBefore} RETURNING 1
@@ -61,6 +76,13 @@ export async function runRetention(sql: postgres.Sql, now: number): Promise<Rete
     ),
     old_devices AS (
       DELETE FROM app.devices WHERE id IN (SELECT id FROM doomed) RETURNING id
+    ),
+    old_outages AS (
+      UPDATE app.outages SET status = 'sin_datos', updated_at = ${now}
+      WHERE status = 'abierto'
+        AND started_at < ${eventsBefore}
+        AND home_id NOT IN (SELECT home_id FROM doomed WHERE home_id IS NOT NULL)
+      RETURNING 1
     )
     SELECT
       (SELECT count(*) FROM old_events)::int AS events,
@@ -68,12 +90,14 @@ export async function runRetention(sql: postgres.Sql, now: number): Promise<Rete
         AS inactive_devices,
       (SELECT count(*) FROM old_homes)::int AS homes,
       (SELECT count(*) FROM old_devices od JOIN doomed USING (id) WHERE NOT doomed.inactive)::int
-        AS unused_devices`;
+        AS unused_devices,
+      (SELECT count(*) FROM old_outages)::int AS old_outages`;
   if (!row) throw new Error('La retención no devolvió conteos');
   return {
     events: row.events,
     inactiveDevices: row.inactive_devices,
     homes: row.homes,
     unusedDevices: row.unused_devices,
+    oldOutages: row.old_outages,
   };
 }

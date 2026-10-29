@@ -16,6 +16,8 @@ export type StaleResult = {
   noNews: number;
   /** Cortes que pasaron de `abierto` a `sin_datos` en esta pasada. */
   noData: number;
+  /** Cortes `sin_datos` que volvieron a `abierto` porque el teléfono de su casa volvió. */
+  reopened: number;
 };
 
 export type SweepResult = {
@@ -27,9 +29,11 @@ export type SweepResult = {
 };
 
 /**
- * `app.mark_stale` (A-037, A-038), una consulta: deja en `sin_datos` los cortes `abierto` de las
- * casas sin eventos nuevos desde hace 24 h y en `sin_noticias` las casas sin corte abierto cuyo
- * teléfono no tiene latido desde hace 40 min, y sube la revisión de cada casa que toca (A-023).
+ * `app.mark_stale` (A-037, A-038, A-049), una consulta, todo medido con el latido del teléfono de
+ * la casa: vuelve a `abierto` (y la casa a `sin_luz`) el `sin_datos` más reciente de una casa
+ * cuyo teléfono volvió, deja en `sin_datos` los cortes `abierto` de las casas sin latido desde
+ * hace 24 h y en `sin_noticias` las casas sin corte abierto ni latido desde hace 40 min. Sube la
+ * revisión de cada casa que toca (A-023).
  */
 export async function markStale(sql: postgres.Sql, now: number): Promise<StaleResult> {
   const [row] = await sql<{ result: StaleResult }[]>`SELECT app.mark_stale(${now}) AS result`;

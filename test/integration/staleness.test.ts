@@ -4,7 +4,7 @@ import type { HomeStatus } from '../../src/domain/homes/schema';
 import type { Bindings, RateLimiter } from '../../src/env';
 import { createApp } from '../../src/index';
 import { runSweep } from '../../src/jobs/sweep';
-import { at, snap } from '../../src/testing/builders';
+import { at, report, snap } from '../../src/testing/builders';
 import { TEST_SIGNING_KEY, testDb, truncateAll } from './helpers';
 
 const DIAGNOSTICS: Diagnostics = {
@@ -176,12 +176,12 @@ describe('sin noticias y sin_datos', () => {
     const before = await homeRow(casa.homeId);
 
     // 39 min sin latido: todavía no
-    expect((await sweep(49)).stale).toEqual({ noNews: 0, noData: 0 });
+    expect((await sweep(49)).stale).toEqual({ noNews: 0, noData: 0, reopened: 0 });
     expect(await homeRow(casa.homeId)).toMatchObject({ status: 'con_luz', since: at(0) });
 
     const result = await sweep(55);
 
-    expect(result.stale).toEqual({ noNews: 1, noData: 0 });
+    expect(result.stale).toEqual({ noNews: 1, noData: 0, reopened: 0 });
     // sube la revisión (A-023): un lote en vuelo no puede pisar el estado nuevo
     expect(await homeRow(casa.homeId)).toEqual({
       status: 'sin_noticias',
@@ -192,7 +192,7 @@ describe('sin noticias y sin_datos', () => {
     expect(sweepQueries).toBe(3);
 
     // otra pasada no la vuelve a tocar
-    expect((await sweep(60)).stale).toEqual({ noNews: 0, noData: 0 });
+    expect((await sweep(60)).stale).toEqual({ noNews: 0, noData: 0, reopened: 0 });
     expect(await homeRow(casa.homeId)).toMatchObject({ since: at(10) });
   });
 
@@ -262,57 +262,70 @@ describe('sin noticias y sin_datos', () => {
     await post(casa.token, 6, opening(0));
     expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_luz', since: at(5) });
 
-    expect((await sweep(60)).stale).toEqual({ noNews: 0, noData: 0 });
+    expect((await sweep(60)).stale).toEqual({ noNews: 0, noData: 0, reopened: 0 });
 
     expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_luz', since: at(5) });
   });
 
-  it('24 h sin eventos deja el corte en sin_datos y no suma horas', async () => {
+  /** El historial de la casa desde las 6:00 p. m. del día 0 hasta `minute`. */
+  async function history(token: string, minute: number) {
+    now = at(minute);
+    const res = await call('GET', `/v1/homes/me/outages?from=${at(0)}&to=${at(minute)}`, token);
+    expect(res.status).toBe(200);
+    return (await res.json()) as { items: { status: string }[]; totalMs: number };
+  }
+
+  it('un corte de 30 h con latidos sigue abierto y suma horas', async () => {
     const casa = await home();
-    await post(casa.token, 6, opening(0)); // corte desde las 6:05 p. m., recibido a las 6:06
-    await post(casa.token, DAY); // el teléfono sigue con latidos, sin cambios que subir
+    await post(casa.token, 6, opening(0)); // corte desde las 6:05 p. m.
+    // el teléfono sigue vivo por datos móviles: solo latidos, sin cambios que subir
+    for (let minute = 15; minute <= 30 * 60; minute += 15) await post(casa.token, minute);
 
-    expect((await sweep(DAY + 5)).stale).toEqual({ noNews: 0, noData: 0 });
+    expect((await sweep(30 * 60 + 2)).stale).toEqual({ noNews: 0, noData: 0, reopened: 0 });
+
+    expect(await outagesOf(casa.homeId)).toMatchObject([{ status: 'abierto', end: null }]);
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_luz', since: at(5) });
+    const summary = await history(casa.token, 30 * 60 + 5);
+    expect(summary.items.map((item) => item.status)).toEqual(['abierto']);
+    expect(summary.totalMs).toBe(at(30 * 60 + 5) - at(5));
+  });
+
+  it('sin latidos por 24 h pasa a sin_datos y la casa a sin_noticias desde el último latido', async () => {
+    const casa = await home();
+    await post(casa.token, 6, opening(0));
+    await post(casa.token, 20); // el último latido, a las 6:20 p. m.
+
+    // 23 h 59 min sin latido: el corte sigue abierto y la casa sin luz
+    expect((await sweep(DAY + 19)).stale).toEqual({ noNews: 0, noData: 0, reopened: 0 });
     expect(await outagesOf(casa.homeId)).toMatchObject([{ status: 'abierto' }]);
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_luz', since: at(5) });
+    const before = await homeRow(casa.homeId);
 
-    const result = await sweep(DAY + 6);
+    const result = await sweep(DAY + 20);
 
-    expect(result.stale).toEqual({ noNews: 0, noData: 1 });
-    expect(result.starts).toBe(0);
+    expect(result).toMatchObject({
+      starts: 0,
+      stale: { noNews: 1, noData: 1, reopened: 0 },
+    });
     expect(await outagesOf(casa.homeId)).toEqual([
       { start: at(5), end: null, status: 'sin_datos', startNotified: null, endNotified: null },
     ]);
+    expect(await homeRow(casa.homeId)).toEqual({
+      status: 'sin_noticias',
+      since: at(20),
+      revision: (before?.revision ?? 0) + 1,
+    });
+    expect(sweepQueries).toBe(3);
 
-    now = at(DAY + 10);
-    const res = await call(
-      'GET',
-      `/v1/homes/me/outages?from=${at(0)}&to=${at(DAY + 10)}`,
-      casa.token,
-    );
-    expect(res.status).toBe(200);
-    const history = (await res.json()) as {
-      items: { status: string }[];
-      totalMs: number;
-      days: { ms: number }[];
-    };
-    expect(history.items.map((item) => item.status)).toEqual(['sin_datos']);
-    expect(history.totalMs).toBe(0);
-    expect(history.days.every((day) => day.ms === 0)).toBe(true);
-
-    // ya no es un corte abierto
-    const status = await call('GET', '/v1/homes/me/status', casa.token);
-    expect(await status.json()).toMatchObject({ openOutageStart: null });
-  });
-
-  it('sin latido y con el corte en sin_datos, la casa pasa a sin_noticias en la misma pasada', async () => {
-    const casa = await home();
-    await post(casa.token, 6, opening(0));
-
-    const result = await sweep(DAY + 10);
-
-    expect(result.stale).toEqual({ noNews: 1, noData: 1 });
-    expect(await outagesOf(casa.homeId)).toMatchObject([{ status: 'sin_datos' }]);
-    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_noticias', since: at(6) });
+    // no suma horas ni es el corte abierto de la casa (la consulta del historial es del
+    // propio teléfono, que vuelve: el sweep siguiente lo reabriría)
+    const [row] = await sql<{ open: number }[]>`
+      SELECT count(*)::int AS open FROM app.outages
+      WHERE home_id = ${casa.homeId} AND status = 'abierto'`;
+    expect(row?.open).toBe(0);
+    const summary = await history(casa.token, DAY + 25);
+    expect(summary.items.map((item) => item.status)).toEqual(['sin_datos']);
+    expect(summary.totalMs).toBe(0);
   });
 
   it('un corte sin_datos con eventos atrasados se cierra sin duplicarse', async () => {
@@ -321,12 +334,14 @@ describe('sin noticias y sin_datos', () => {
     await post(casa.token, 6, opening(0)); // el cron no corrió: el inicio nunca salió
     await sweep(DAY + 10);
     expect(await outagesOf(casa.homeId)).toMatchObject([{ status: 'sin_datos' }]);
-    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_noticias' });
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_noticias', since: at(6) });
 
-    // vuelve el teléfono con lo que tenía en cola: la luz volvió a las 8:15 p. m.
+    // vuelve el teléfono con lo que tenía en cola: la luz volvió a las 8:15 p. m. del día 0
     const body = await post(casa.token, DAY + 30, [snap(135, true, true)]);
 
-    expect(body.status).toMatchObject({ state: 'con_luz', openOutageStart: null });
+    // decide el lote, no la auth: con luz desde las 8:15 p. m., no desde la subida
+    expect(body.status).toMatchObject({ state: 'con_luz', since: at(135), openOutageStart: null });
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'con_luz', since: at(135) });
     expect(await outagesOf(casa.homeId)).toEqual([
       {
         start: at(5),
@@ -357,13 +372,116 @@ describe('sin noticias y sin_datos', () => {
     expect(await outagesOf(casa.homeId)).toMatchObject([{ status: 'sin_datos' }]);
 
     // el teléfono vuelve en otra red: sigue sin luz en casa
-    await post(casa.token, DAY + 30, [snap(DAY + 29, false, true, { homeWifi: false })]);
+    const body = await post(casa.token, DAY + 30, [
+      snap(DAY + 29, false, true, { homeWifi: false }),
+    ]);
 
+    expect(body.status).toMatchObject({ state: 'sin_luz', since: at(5), openOutageStart: at(5) });
     expect(await outagesOf(casa.homeId)).toEqual([
       { start: at(5), end: null, status: 'abierto', startNotified: at(16), endNotified: null },
     ]);
     await sweep(DAY + 35);
     expect(expo.sent.map((m) => m.data.type)).toEqual(['start']);
+  });
+
+  it('un corte manual sin_datos se cierra con un hay_luz atrasado', async () => {
+    const casa = await home();
+    // corte manual a las 6:01 p. m., con un snapshot powered repetido dentro
+    await post(casa.token, 6, [
+      snap(0, true, true),
+      report(1, 'sin_luz'),
+      snap(2, true, true, { internet: false }),
+    ]);
+    await sweep(DAY + 10);
+    expect(await outagesOf(casa.homeId)).toMatchObject([{ status: 'sin_datos' }]);
+
+    await post(casa.token, DAY + 30, [report(60, 'hay_luz')]);
+
+    expect(await outagesOf(casa.homeId)).toMatchObject([
+      { start: at(1), end: at(60), status: 'cerrado' },
+    ]);
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'con_luz', since: at(60) });
+  });
+
+  it('un latido vacío tras un sin_datos no dice que hay luz: el sweep reabre el corte', async () => {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    await post(casa.token, 6, opening(0));
+    await sweep(16); // sale el inicio
+    await sweep(DAY + 10);
+
+    // vuelve con datos móviles y sin cambios que subir: la luz sigue sin volver
+    const body = await post(casa.token, DAY + 30);
+
+    expect(queries).toBe(1);
+    expect(body.status).toMatchObject({ state: 'sin_noticias', since: at(6) });
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_noticias' });
+    const before = await homeRow(casa.homeId);
+
+    expect((await sweep(DAY + 35)).stale).toEqual({ noNews: 0, noData: 0, reopened: 1 });
+
+    expect(await outagesOf(casa.homeId)).toEqual([
+      { start: at(5), end: null, status: 'abierto', startNotified: at(16), endNotified: null },
+    ]);
+    expect(await homeRow(casa.homeId)).toEqual({
+      status: 'sin_luz',
+      since: at(5),
+      revision: (before?.revision ?? 0) + 1,
+    });
+    // la pasada siguiente no lo vuelve a tocar, y no sale otro inicio
+    expect((await sweep(DAY + 40)).stale).toEqual({ noNews: 0, noData: 0, reopened: 0 });
+    expect(expo.sent.map((m) => m.data.type)).toEqual(['start']);
+
+    // vuelve la luz: sale el regreso con la duración completa
+    await post(casa.token, DAY + 60, [snap(DAY + 59, true, true)]);
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'con_luz', since: at(DAY + 59) });
+    expect(expo.sent.map((m) => m.data.type)).toEqual(['start', 'return']);
+  });
+
+  it('un lote con eventos tras sin_noticias deja con_luz desde el fin del corte, no desde la subida', async () => {
+    const casa = await home();
+    await post(casa.token, 10, [snap(10, true, true)]);
+    await sweep(55);
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_noticias', since: at(10) });
+
+    // un corte de 7:00 a 8:00 p. m. que el teléfono tenía en cola
+    const body = await post(casa.token, 200, [snap(60, false, false), snap(120, true, true)]);
+
+    expect(body.status).toMatchObject({ state: 'con_luz', since: at(120) });
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'con_luz', since: at(120) });
+  });
+
+  it('un lote de solo duplicados deja la casa en sin_noticias hasta el siguiente latido', async () => {
+    const casa = await home();
+    const events = [snap(10, true, true)];
+    await post(casa.token, 10, events);
+    await sweep(55);
+
+    const body = await post(casa.token, 60, events);
+
+    expect(body).toMatchObject({ accepted: 0, status: { state: 'sin_noticias' } });
+    await post(casa.token, 75);
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'con_luz', since: at(75) });
+  });
+
+  it('un sin_datos cuyo inicio ya se purgó no se reabre ni frena la vuelta a con_luz', async () => {
+    const casa = await home();
+    await post(casa.token, 10);
+    // un corte de hace 31 días que la retención dejó en sin_datos
+    await sql`
+      INSERT INTO app.outages (id, home_id, started_at, ended_at, status, confidence, confirmed,
+                               updated_at, created_at)
+      VALUES (gen_random_uuid(), ${casa.homeId}, ${at(-31 * DAY)}, NULL, 'sin_datos', 'alta',
+              NULL, ${at(0)}, ${at(-31 * DAY)})`;
+    await sweep(55);
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'sin_noticias' });
+
+    await post(casa.token, 60);
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'con_luz', since: at(60) });
+
+    expect((await sweep(65)).stale).toEqual({ noNews: 0, noData: 0, reopened: 0 });
+    expect(await outagesOf(casa.homeId)).toMatchObject([{ status: 'sin_datos' }]);
+    expect(await homeRow(casa.homeId)).toMatchObject({ status: 'con_luz', since: at(60) });
   });
 
   it('un corte abierto cuyos eventos de inicio ya se purgaron no se reescribe', async () => {

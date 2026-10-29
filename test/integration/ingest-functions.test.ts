@@ -292,25 +292,48 @@ describe('funciones de ingesta', () => {
     expect(result.outages).toEqual([{ id: outageId, ...outage }]);
   });
 
-  it('un corte sin_datos no amplía la ventana', async () => {
+  it('un corte sin_datos amplía la ventana como uno abierto: un hay_luz atrasado lo alcanza', async () => {
     const home = await createHome(sql);
+    const sinLuz = report(1, 'sin_luz');
     await ingestApplied(home, [snap(0, true, true)]);
-    await ingestApplied(home, [report(1, 'sin_luz')]);
+    await ingestApplied(home, [sinLuz]);
     // un snapshot powered repetido dentro del corte manual
     await ingestApplied(home, [snap(2, true, true, { internet: false })]);
-    await storeOutage(home.homeId, {
+    const outage = {
       start: at(1),
       end: null,
       status: 'sin_datos' as DetectedOutage['status'],
-      confidence: 'manual',
+      confidence: 'manual' as const,
+      confirmed: null,
+    };
+    const outageId = await storeOutage(home.homeId, outage);
+
+    // sin ampliar, la ventana arrancaría en el powered del minuto 2, sin el sin_luz
+    const result = await ingest(home, [report(60, 'hay_luz')]);
+
+    expect(result.window[0]?.at).toBe(at(0));
+    expect(result.window).toContainEqual(sinLuz);
+    expect(result.outages).toEqual([{ id: outageId, ...outage }]);
+  });
+
+  it('un corte cuyos eventos de inicio ya se purgaron no amplía la ventana', async () => {
+    const home = await createHome(sql);
+    await ingestApplied(home, [snap(0, true, true), snap(5, false, false)]);
+    await storeOutage(home.homeId, {
+      start: at(5),
+      end: null,
+      status: 'sin_datos' as DetectedOutage['status'],
+      confidence: 'alta',
       confirmed: null,
     });
+    await ingestApplied(home, [snap(100, false, false), snap(150, true, true)]);
+    await sql`DELETE FROM app.events WHERE home_id = ${home.homeId} AND at < ${at(100)}`;
 
-    // un sin_datos no se cierra solo: si ampliara la ventana, la arrastraría hasta su inicio en
-    // cada lote. La ventana arranca en el powered anterior y el corte queda fuera.
-    const result = await ingest(home, [snap(30, false, false)]);
+    // ampliar hasta el minuto 5 no encuentra powered antes y arrancaría en el evento más viejo
+    // (el minuto 100) en cada lote: la ventana arranca en el powered anterior al lote
+    const result = await ingest(home, [snap(200, false, false)]);
 
-    expect(result.window[0]?.at).toBe(at(2));
+    expect(result.window[0]?.at).toBe(at(150));
     expect(result.outages).toEqual([]);
   });
 

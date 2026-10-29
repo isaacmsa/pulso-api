@@ -81,7 +81,7 @@ Con corte abierto:
 | Reporte y snapshot con la misma `at` | Se ordenan por `id`, como cualquier empate. El resultado no depende del orden en que lleguen |
 | `confirmation` | Se aplica al corte cuyo `start` esté a `CONFIRMATION_TOLERANCE_MS` o menos de `outageStart`. Si cae en la tolerancia de varios cortes, va al de `start` más cercano (en empate, al más temprano). Si hay varias confirmaciones, manda la última. `answer: false` deja el corte `descartado` con `confirmed: false`; `answer: true` deja `confirmed: true` |
 
-En el servidor, un corte `abierto` que pasa 24 horas sin eventos nuevos queda `sin_datos` y no suma horas. Es una regla de tiempo y vive en el cron `sweep` (`app.mark_stale`, A-038), no en el clasificador. Si después llegan eventos atrasados, la reconciliación lo vuelve a ver (abajo).
+En el servidor, un corte `abierto` cuya casa pasa 24 horas sin latido de su teléfono queda `sin_datos` y no suma horas; si el teléfono vuelve a dar latido sin subir cambios, vuelve a `abierto` (A-049). Mientras haya latidos, un corte largo sigue `abierto` aunque no lleguen eventos (el teléfono sube solo cambios). Es una regla de tiempo y vive en el cron `sweep` (`app.mark_stale`, A-038), no en el clasificador. Si llegan eventos atrasados, la reconciliación lo vuelve a ver (abajo).
 
 ## Del clasificador a la base
 
@@ -93,7 +93,7 @@ En el servidor, un corte `abierto` que pasa 24 horas sin eventos nuevos queda `s
 - **Detectado sin pareja:** `insert`.
 - **Guardado sin pareja:** `update` a `descartado`, con sus horas intactas. Si ya estaba `descartado` o `sin_datos`, no hay cambio: un `sin_datos` solo cambia cuando unos eventos atrasados lo vuelven a detectar.
 - **`sin_datos` emparejado:** como cualquier par distinto, `update` a lo detectado (`cerrado`, `abierto` o `descartado`; A-038). Lo guardado acepta los cuatro estados (`StoredOutage.status`), lo detectado nunca trae `sin_datos`.
-- **Guardado que empieza antes de la ventana** (`windowStart`, el `at` del primer evento de la ventana): queda fuera, ni se empareja ni se reescribe. Pasa cuando la retención borró los eventos de su inicio: el clasificador ya no lo puede ver y sin esta regla quedaría `descartado` (A-042). `ingest_batch` ya no los devuelve; el dominio aplica la misma regla por si acaso.
+- **Guardado que empieza antes de la ventana** (`windowStart`, el `at` del primer evento de la ventana): queda fuera, ni se empareja ni se reescribe. Pasa cuando la retención borró los eventos de su inicio: el clasificador ya no lo puede ver y sin esta regla quedaría `descartado` (A-042). `ingest_batch` ya no los devuelve ni amplía la ventana por ellos; el dominio aplica la misma regla por si acaso. La retención deja `sin_datos` los que seguían `abierto`, para que no queden abiertos para siempre.
 - **Orden de salida:** primero los cambios de los detectados (por `start`) y después los descartes (por `start`).
 
 `deriveHomeStatus` (`src/domain/detection/home-status.ts`) calcula el estado de la casa con lo detectado:

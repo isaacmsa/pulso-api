@@ -121,8 +121,10 @@ export async function clearPushTokens(
 }
 
 /**
- * Renueva `last_seen_at` de esos dispositivos, en UNA consulta. Nunca lo retrasa (`GREATEST`): un
- * latido o una petición más nueva que `now` se respeta.
+ * Renueva `last_seen_at` de esos dispositivos, en UNA consulta, solo si únicamente siguen casas
+ * (`home_id IS NULL`, A-047): el `last_seen_at` del teléfono de una casa es su latido, y de él salen
+ * "sin noticias" y `sin_datos` (A-037, A-049). Nunca lo retrasa (`GREATEST`): un latido o una
+ * petición más nueva que `now` se respeta.
  */
 export async function touchDevices(
   sql: postgres.Sql,
@@ -132,7 +134,7 @@ export async function touchDevices(
   if (deviceIds.length === 0) return;
   await sql`
     UPDATE app.devices SET last_seen_at = GREATEST(last_seen_at, ${now}::bigint)
-    WHERE id IN ${sql(deviceIds as string[])}`;
+    WHERE id IN ${sql(deviceIds as string[])} AND home_id IS NULL`;
 }
 
 /**

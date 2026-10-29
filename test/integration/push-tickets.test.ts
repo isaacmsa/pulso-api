@@ -39,6 +39,15 @@ describe('tickets y recibos de Expo Push', () => {
     return deviceId;
   }
 
+  /** Un teléfono que solo sigue casas (sin `home_id`), con `push_token`. */
+  async function followerPhone(token = `ExponentPushToken[${randomUUID()}]`) {
+    const id = randomUUID();
+    await sql`
+      INSERT INTO app.devices (id, token_hash, push_token, app_version, created_at, last_seen_at)
+      VALUES (${id}, ${randomUUID()}, ${token}, '1.0.0', 0, 0)`;
+    return id;
+  }
+
   const tokenOf = async (deviceId: string) =>
     (
       await sql<{ push_token: string | null }[]>`
@@ -187,10 +196,10 @@ describe('tickets y recibos de Expo Push', () => {
       )[0]?.last_seen_at,
     );
 
-  it('un recibo ok renueva last_seen_at del dispositivo, y solo el de ese recibo', async () => {
-    const ok = await phone();
-    const failed = await phone();
-    const unknown = await phone();
+  it('un recibo ok renueva last_seen_at del seguidor, y solo el de ese recibo', async () => {
+    const ok = await followerPhone();
+    const failed = await followerPhone();
+    const unknown = await followerPhone();
     await sql`UPDATE app.devices SET last_seen_at = 1000 WHERE id IN ${sql([ok, failed, unknown])}`;
     await saveTickets(
       sql,
@@ -212,8 +221,26 @@ describe('tickets y recibos de Expo Push', () => {
     expect(await lastSeen(unknown)).toBe(1000);
   });
 
+  it('un recibo ok no renueva el teléfono de una casa: su latido decide sin noticias', async () => {
+    const house = await phone();
+    const onlyFollows = await followerPhone();
+    await sql`UPDATE app.devices SET last_seen_at = 1000 WHERE id IN ${sql([house, onlyFollows])}`;
+    await saveTickets(
+      sql,
+      [
+        { ticketId: 't-casa', deviceId: house },
+        { ticketId: 't-sigue', deviceId: onlyFollows },
+      ],
+      NOW - RECEIPT_DELAY_MS,
+    );
+    const { impl } = receiptsFetch({ 't-casa': { status: 'ok' }, 't-sigue': { status: 'ok' } });
+    await processReceipts(sql, impl, NOW);
+    expect(await lastSeen(house)).toBe(1000);
+    expect(await lastSeen(onlyFollows)).toBe(NOW);
+  });
+
   it('un recibo ok nunca retrasa last_seen_at', async () => {
-    const d = await phone();
+    const d = await followerPhone();
     await sql`UPDATE app.devices SET last_seen_at = ${NOW + 5000} WHERE id = ${d}`;
     await saveTickets(sql, [{ ticketId: 't', deviceId: d }], NOW - RECEIPT_DELAY_MS);
     await processReceipts(sql, receiptsFetch({ t: { status: 'ok' } }).impl, NOW);
