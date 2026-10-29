@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatClock, formatDuration, formatRange } from './format';
+import { formatClock, formatDuration, formatRange, formatShortDate } from './format';
 
 /** Una hora de Caracas (UTC−4) en epoch ms. */
 const VET = (h: number, min = 0, day = 1, sec = 0) => Date.UTC(2026, 10, day, h + 4, min, sec);
@@ -48,5 +48,39 @@ describe('formatRange', () => {
     expect(formatRange(VET(11, 30), VET(12, 0))).toBe('11:30 a. m. a 12:00 m.');
     expect(formatRange(VET(12, 0), VET(12, 40))).toBe('12:00 m. a 12:40 p. m.');
     expect(formatRange(VET(20, 0), VET(21, 0, 2))).toBe('8:00 p. m. a 9:00 p. m.');
+  });
+});
+
+describe('formatShortDate', () => {
+  it('da el día sin cero y el mes abreviado, en Caracas', () => {
+    expect(formatShortDate(VET(14, 30, 28))).toBe('28 nov');
+    expect(formatShortDate(VET(9, 0, 3))).toBe('3 nov');
+  });
+
+  it('usa el día de Caracas, no el de UTC', () => {
+    // 11:30 p. m. del 28 en Caracas ya es el 29 en UTC
+    expect(formatShortDate(VET(23, 30, 28))).toBe('28 nov');
+    // 12:30 a. m. del 29 en Caracas todavía es el 29, aunque en UTC sea de madrugada
+    expect(formatShortDate(VET(0, 30, 29))).toBe('29 nov');
+  });
+
+  it('cubre los doce meses', () => {
+    const months = [
+      'ene',
+      'feb',
+      'mar',
+      'abr',
+      'may',
+      'jun',
+      'jul',
+      'ago',
+      'sep',
+      'oct',
+      'nov',
+      'dic',
+    ];
+    months.forEach((name, month) => {
+      expect(formatShortDate(Date.UTC(2026, month, 15, 16))).toBe(`15 ${name}`);
+    });
   });
 });

@@ -25,10 +25,10 @@ Base: `/v1`. El teléfono se autentica con `Authorization: Bearer <token>`. Para
 | `POST /v1/follows` | Token | Seguir una casa con su código | `201 { homeId, alias, status }` | 3 |
 | `GET /v1/follows` | Token | Casas que sigo, con su estado | `{ items }` | 3 |
 | `DELETE /v1/follows/:homeId` | Token | Dejar de seguir | `204` | 3 |
-| `GET /c/:code` | Pública; límite por IP; caché 30 s | Página HTML de la familia | HTML | 3 |
+| `GET /c/:code` | Pública; límite por IP; `Cache-Control: public, max-age=30` | Página HTML de la familia: el alias de la casa y uno de los tres estados ("Hay luz desde las 2:30 p. m.", "Se fue la luz a las 6:05 p. m. (1 h 20 min)", "Sin noticias de la casa desde las 7:10 p. m."; si la hora no es de hoy en Caracas lleva la fecha, "desde el 28 oct a las 2:30 p. m."), sin ids ni datos del dispositivo ni de los seguidores, y un botón "Abrir en Pulso" que es el mismo enlace. El código no existe o es inválido: el mismo 404 HTML ("Ese código no existe"). Lleva `X-Robots-Tag: noindex` y `Referrer-Policy: no-referrer` (A-035). 1 consulta | HTML | 3 |
 | `GET /privacidad` | Pública | Política de privacidad | HTML | 2 |
 | `GET /borrar-datos` | Pública | Cómo borrar los datos desde la app o por correo (lo pide el formulario de Play) | HTML | 2 |
-| `GET /.well-known/assetlinks.json` | Pública | Abrir `/c/:code` dentro de la app (App Links) | JSON | 3 |
+| `GET /.well-known/assetlinks.json` | Pública | Abrir `/c/:code` dentro de la app (App Links). Lleva la huella `ANDROID_CERT_SHA256` (una `var`, no secreta; acepta varias separadas por coma); sin huella responde `404 not_found`. 0 consultas | JSON | 3 |
 | `GET /health` | Pública; límite por IP | Monitoreo (1 consulta) | `{ ok: true }` | 1 |
 | `GET /openapi.json` | Pública | Contrato para generar el cliente de la app | JSON | 1 |
 | `GET /docs` | Pública solo en staging | Referencia navegable (Scalar) | HTML | 1 |
@@ -184,7 +184,7 @@ Muchos usuarios de CANTV, Digitel y Movistar comparten IP (CGNAT), y cuando vuel
 | `POST /v1/events` | Dispositivo | 30 por minuto |
 | Resto con token | Dispositivo | 120 por minuto |
 | `GET /health` | IP | 60 por minuto (`RATE_LIMIT_PUBLIC`) |
-| `GET /c/:code` | IP | 60 por minuto, con caché de 30 s (`RATE_LIMIT_PUBLIC`, fase 3) |
+| `GET /c/:code` | IP | 60 por minuto (`RATE_LIMIT_PUBLIC`); corre antes de validar el código y de consultar la base |
 
 Se usa el binding Rate Limiting de Workers, con clave por dispositivo, o por IP en las rutas públicas (A-009). El binding solo admite periodos de 10 o 60 segundos. La clave por dispositivo es el SHA-256 del token, así que el límite corre antes de tocar la base, y un token ausente, mal formado o con firma inválida responde 401 sin consultarla ni llegar al límite (A-021). El teléfono espera entre 0 y 60 segundos al azar antes de subir tras recuperar la red, para no llegar todos en el mismo segundo.
 

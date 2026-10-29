@@ -27,7 +27,9 @@
       "localConnectionString": "postgres://pulso_api:pulso_dev@localhost:54322/pulso_dev"
     }
   ],
-  "vars": { "ENVIRONMENT": "local", "EXPOSE_DOCS": "true" },
+  // ANDROID_CERT_SHA256 (no secreta): la huella de firma de la app para App Links. Vacía, la ruta
+  // `/.well-known/assetlinks.json` responde 404 (A-035).
+  "vars": { "ENVIRONMENT": "local", "EXPOSE_DOCS": "true", "ANDROID_CERT_SHA256": "" },
   // El binding solo admite periodos de 10 o 60 s (A-014).
   "ratelimits": [
     {
@@ -54,7 +56,7 @@
       "observability": { "enabled": true, "logs": { "invocation_logs": false } },
       // Hyperdrive con la conexión directa y la caché desactivada (A-015). Isaac pasa el `id`.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "4c73e19917d346beb6582b5d254507c6" }],
-      "vars": { "ENVIRONMENT": "staging", "EXPOSE_DOCS": "true" },
+      "vars": { "ENVIRONMENT": "staging", "EXPOSE_DOCS": "true", "ANDROID_CERT_SHA256": "" },
       "triggers": { "crons": ["*/5 * * * *", "0 8 * * *"] },
       "ratelimits": [
         {
@@ -86,7 +88,7 @@
       // reemplaza el marcador. Mientras esté, `deploy-production.yml` no migra ni despliega.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<pendiente-isaac>" }],
       // Sin `EXPOSE_DOCS`: `/docs` responde 404 en producción.
-      "vars": { "ENVIRONMENT": "production" },
+      "vars": { "ENVIRONMENT": "production", "ANDROID_CERT_SHA256": "" },
       "triggers": { "crons": ["*/5 * * * *", "0 8 * * *"] },
       "ratelimits": [
         {

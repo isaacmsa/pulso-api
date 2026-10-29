@@ -22,7 +22,7 @@ export type Bindings = {
   RATE_LIMIT_REGISTER: RateLimiter;
   RATE_LIMIT_EVENTS: RateLimiter;
   RATE_LIMIT_API: RateLimiter;
-  /** Rutas públicas (`/health`; en la fase 3, `/c/:code`): por IP, 60 por minuto. */
+  /** Rutas públicas (`/health` y `/c/:code`): por IP, 60 por minuto. */
   RATE_LIMIT_PUBLIC: RateLimiter;
   /** Secreto de Worker: base64url de al menos 32 bytes con el que se firman los tokens. */
   TOKEN_SIGNING_KEY: string;
@@ -30,6 +30,12 @@ export type Bindings = {
   EXPO_ACCESS_TOKEN?: string;
   ENVIRONMENT: string;
   EXPOSE_DOCS?: string;
+  /**
+   * Huella SHA-256 del certificado de firma de la app, para `/.well-known/assetlinks.json`
+   * (A-035). No es secreta: va en `vars`. Vacía o ausente, esa ruta responde 404. Acepta varias
+   * separadas por coma.
+   */
+  ANDROID_CERT_SHA256?: string;
 };
 
 /** El dispositivo autenticado y el resumen de su casa, salidos de la consulta de auth. */

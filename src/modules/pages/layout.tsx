@@ -25,6 +25,8 @@ a { color: var(--accent); }
 table { border-collapse: collapse; width: 100%; font-size: .95rem; background: var(--card); }
 th, td { text-align: left; vertical-align: top; padding: .5rem .6rem; border: 1px solid var(--line); }
 th { color: var(--muted); font-weight: 600; }
+.status { font-size: 1.35rem; line-height: 1.4; margin: 1.25rem 0 1.5rem; }
+.btn { display: inline-block; background: var(--accent); color: var(--bg); font-weight: 600; text-decoration: none; padding: .7rem 1.25rem; border-radius: .6rem; }
 nav { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 `;
 

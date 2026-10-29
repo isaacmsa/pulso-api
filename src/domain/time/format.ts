@@ -49,3 +49,11 @@ export function formatRange(start: number, end: number): string {
 export function shownDurationMs(start: number, end: number): number {
   return (Math.floor(end / MINUTE_MS) - Math.floor(start / MINUTE_MS)) * MINUTE_MS;
 }
+
+const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+/** "28 oct": el día (sin cero) y el mes abreviado, según el día de Caracas. */
+export function formatShortDate(ts: number): string {
+  const [, month, day] = caracasDate(ts).split('-');
+  return `${Number(day)} ${MONTHS[Number(month) - 1]}`;
+}
