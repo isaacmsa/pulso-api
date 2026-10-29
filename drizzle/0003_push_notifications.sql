@@ -106,11 +106,13 @@ BEGIN
     --      intervalo de antes): el anunciado terminó antes del aviso, pero ya existía. Uno que
     --      empezó después del aviso nunca es el anunciado;
     --   4. si no, G mismo.
+    -- En la regla 3 gana primero el que contiene el started_at de antes de G, luego uno que queda
+    -- sin descartar, y luego el más cercano: un parpadeo descartado no le gana a la continuación.
     -- Sin push de inicio, otro corte que se solapa con G (su intervalo de antes) y que empezó
     -- cuando el servidor ya conocía G o antes (created_at; updated_at en las filas de antes de
     -- 0003): uno que empezó después no es G. Es la cercanía de reconcileOutages, sin su tope de
-    -- 5 min. Entre varios candidatos de la misma regla gana el de started_at más cercano al de G
-    -- (y, empatados, el más temprano). Si la identidad es otro corte que queda sin descartar, es
+    -- 5 min. Por lo demás, entre varios candidatos de la misma regla gana el de started_at más
+    -- cercano al de G (y, empatados, el más temprano). Si la identidad es otro corte que queda sin descartar, es
     -- su heredero: toma las marcas que no tenía y, si es un insert, también el created_at (el más
     -- viejo; NULL si alguno es de antes de 0003). Si no hay heredero (la identidad es G o quedó
     -- descartada), G avisa su fin, y ningún otro corte hereda un inicio que no es suyo. G
@@ -128,6 +130,8 @@ BEGIN
     candidates AS (
       SELECT g.id AS old_id, n.id AS new_id, n.is_insert, n.is_live,
              abs(n.started_at - g.started_at) AS distance, n.started_at,
+             g.start_notified_at IS NOT NULL AS announced,
+             n.started_at <= g.started_at AND g.started_at <= n.ended_at AS holds_old_start,
              CASE
                WHEN g.start_notified_at IS NULL THEN 3
                WHEN NOT (n.started_at <= g.start_notified_at AND g.start_notified_at <= n.ended_at)
@@ -155,7 +159,12 @@ BEGIN
       WHERE c.rule IN (1, 2)
          OR (c.new_id <> c.old_id
              AND c.started_at <= coalesce(g.start_notified_at, g.created_at, g.updated_at))
-      ORDER BY c.old_id, c.rule, c.distance, c.started_at, c.new_id
+      -- en la regla 3 de un G con inicio, primero el que contiene el started_at de antes de G y
+      -- luego uno sin descartar: un parpadeo descartado más cercano no le gana a la continuación
+      ORDER BY c.old_id, c.rule,
+               (c.announced AND c.rule = 3 AND NOT c.holds_old_start),
+               (c.announced AND c.rule = 3 AND NOT c.is_live),
+               c.distance, c.started_at, c.new_id
     ),
     heirs AS (
       SELECT old_id, new_id, is_insert FROM identities WHERE is_live AND new_id <> old_id

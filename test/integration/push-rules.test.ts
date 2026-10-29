@@ -180,6 +180,18 @@ describe('reglas de push', () => {
   /** Corte alta: armado a `from`, sin corriente ni Wi-Fi a `from + 5`. */
   const opening = (from: number) => [snap(from, true, true), snap(from + 5, false, false)];
 
+  /** Una casa con un seguidor y un corte desde las 6:10 (conocido a las 6:11) cuyo inicio salió a las 6:21. */
+  async function pushed() {
+    const casa = await home();
+    await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
+    await post(casa.token, 11, [snap(0, true, true), snap(10, false, false)]);
+    await sweep(21);
+    expect(bodies()).toEqual([
+      'ExponentPushToken[hija] Se fue la luz en Casa de mamá (6:10 p. m.)',
+    ]);
+    return casa;
+  }
+
   it('un corte de 10 min o más, conocido hace 30 min o menos, manda un inicio a cada seguidor', async () => {
     const casa = await home();
     await follower(casa.shareCode, 'Casa de mamá', 'ExponentPushToken[hija]');
@@ -563,6 +575,158 @@ describe('reglas de push', () => {
       },
       { start: at(10), status: 'descartado', startNotified: at(21), endNotified: null },
     ]);
+  });
+
+  it.each([
+    ['1 min', 17],
+    ['3 min', 19],
+  ])(
+    'un parpadeo de %s después de un corte que cambió de id no le quita el inicio',
+    async (_, back) => {
+      const casa = await pushed();
+
+      // llega tarde: el corte de las 6:10 empezó a las 6:01 (otro id) y terminó a las 6:13, antes
+      // del aviso; a las 6:16 hubo un parpadeo (descartado), más cerca de las 6:10 que las 6:01
+      await post(casa.token, 30, [
+        snap(1, false, true),
+        snap(3, false, false),
+        snap(13, true, true),
+        snap(16, false, false),
+        snap(back, true, true),
+      ]);
+      await sweep(31);
+
+      expect(bodies()).toEqual([
+        'ExponentPushToken[hija] Se fue la luz en Casa de mamá (6:10 p. m.)',
+        'ExponentPushToken[hija] Volvió la luz en Casa de mamá tras 12 min',
+        'ExponentPushToken[casa] ¿Se fue la luz de 6:01 a 6:13 p. m.?',
+      ]);
+      expect(await outageMarks(casa.homeId)).toMatchObject([
+        { start: at(1), status: 'cerrado', createdAt: at(11), startNotified: at(21) },
+        { start: at(10), status: 'descartado', startNotified: at(21), endNotified: null },
+        { start: at(16), status: 'descartado', startNotified: null, endNotified: null },
+      ]);
+    },
+  );
+
+  it('un "No" que llega con un cambio de id no manda ningún aviso más', async () => {
+    const casa = await pushed();
+    await post(casa.token, 41, [snap(40, true, true)]);
+    expect(expo.sent).toHaveLength(3); // regreso y confirmación del corte de 6:10 a 6:40
+
+    // llega tarde: el corte empezó a las 6:01 (otro id), junto con un "No" para el de las 6:10
+    await post(casa.token, 50, [
+      snap(1, false, true),
+      snap(3, false, false),
+      confirmation(49, 10, false),
+    ]);
+    await sweep(51);
+
+    expect(bodies()).toEqual([
+      'ExponentPushToken[hija] Se fue la luz en Casa de mamá (6:10 p. m.)',
+      'ExponentPushToken[hija] Volvió la luz en Casa de mamá tras 30 min',
+      'ExponentPushToken[casa] ¿Se fue la luz de 6:10 a 6:40 p. m.?',
+    ]);
+    expect(await outageMarks(casa.homeId)).toMatchObject([
+      {
+        start: at(1),
+        status: 'cerrado',
+        createdAt: at(11),
+        startNotified: at(21),
+        endNotified: at(41),
+        confirmAsked: at(41),
+      },
+      {
+        start: at(10),
+        status: 'descartado',
+        startNotified: at(21),
+        endNotified: at(41),
+        confirmAsked: null,
+      },
+    ]);
+  });
+
+  it('apply_outages elige como heredero el corte anunciado, nunca uno posterior ni un parpadeo', async () => {
+    const casa = await pushed();
+    const [g] = await sql<{ id: string }[]>`
+      SELECT id FROM app.outages WHERE home_id = ${casa.homeId}`;
+    const outage = (start: number, end: number | null, status: string, confidence = 'alta') => ({
+      start: at(start),
+      end: end === null ? null : at(end),
+      status,
+      confidence,
+      confirmed: null,
+    });
+    const insert = (n: number, o: ReturnType<typeof outage>) => ({
+      op: 'insert',
+      id: `01a1888b-0000-7000-8000-00000000000${n}`,
+      outage: o,
+    });
+
+    /** Aplica a las 6:40 el huérfano G (intervalo de antes, descartado) más `extra`, y deshace. */
+    async function apply(extra: unknown[]) {
+      let result: { kinds: string[]; rows: unknown[] } | undefined;
+      await sql
+        .begin(async (tx) => {
+          const [home] = await tx<{ rev: string }[]>`
+            SELECT ingest_revision::text AS rev FROM app.homes WHERE id = ${casa.homeId}`;
+          const changes = [
+            { op: 'update', id: g?.id, outage: outage(10, null, 'descartado') },
+            ...extra,
+          ];
+          const [row] = await tx<{ r: { notify: { kind: string }[] } }[]>`
+            SELECT app.apply_outages(${casa.homeId}::uuid, ${home?.rev ?? ''}::bigint,
+                                     ${JSON.stringify(changes)}::text::jsonb, null, ${at(40)}) AS r`;
+          const rows = await tx`
+            SELECT ((started_at - ${at(0)}) / ${MIN})::int AS s, status,
+                   ((start_notified_at - ${at(0)}) / ${MIN})::int AS sn,
+                   ((end_notified_at - ${at(0)}) / ${MIN})::int AS en,
+                   ((created_at - ${at(0)}) / ${MIN})::int AS c
+            FROM app.outages WHERE home_id = ${casa.homeId} ORDER BY started_at`;
+          result = { kinds: (row?.r.notify ?? []).map((n) => n.kind), rows: [...rows] };
+          throw new Error('deshacer');
+        })
+        .catch((error: Error) => {
+          if (error.message !== 'deshacer') throw error;
+        });
+      return result;
+    }
+
+    // uno que empezó después del aviso no es el anunciado: G manda su "volvió la luz"
+    expect(await apply([insert(1, outage(35, null, 'abierto'))])).toEqual({
+      kinds: ['return_plain'],
+      rows: [
+        { s: 10, status: 'descartado', sn: 21, en: 40, c: 11 },
+        { s: 35, status: 'abierto', sn: null, en: null, c: 40 },
+      ],
+    });
+    // el anunciado terminó antes del aviso: hereda el inicio y manda su regreso
+    expect(await apply([insert(2, outage(1, 18, 'cerrado'))])).toEqual({
+      kinds: ['return', 'confirm'],
+      rows: [
+        { s: 1, status: 'cerrado', sn: 21, en: 40, c: 11 },
+        { s: 10, status: 'descartado', sn: 21, en: null, c: 11 },
+      ],
+    });
+    // un parpadeo descartado más cercano a G no le gana al corte que contiene su inicio
+    expect(
+      await apply([
+        insert(3, outage(1, 13, 'cerrado')),
+        insert(4, outage(16, 17, 'descartado', 'media')),
+      ]),
+    ).toEqual({
+      kinds: ['return', 'confirm'],
+      rows: [
+        { s: 1, status: 'cerrado', sn: 21, en: 40, c: 11 },
+        { s: 10, status: 'descartado', sn: 21, en: null, c: 11 },
+        { s: 16, status: 'descartado', sn: null, en: null, c: 40 },
+      ],
+    });
+    // solo: G manda su "volvió la luz"
+    expect(await apply([])).toEqual({
+      kinds: ['return_plain'],
+      rows: [{ s: 10, status: 'descartado', sn: 21, en: 40, c: 11 }],
+    });
   });
 
   it('un corte que se acorta a menos de 10 min después de su inicio manda volvió la luz una vez', async () => {
