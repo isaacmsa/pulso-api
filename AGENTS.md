@@ -82,5 +82,6 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 - `docs/data-model.md`: esquema de PostgreSQL, funciones de ingesta, retención y presupuesto de consultas
 - `docs/decisions.md`: decisiones internas del backend (A-0xx)
 - `docs/roadmap.md`: tareas del backend por fase
+- `docs/runbook.md`: desplegar, volver atrás, restaurar, rotar secretos, reactivar un proyecto pausado y revisar el respaldo
 - `docs/plans/`: plan paso a paso de cada fase
 - En `pulso-app/docs/`: `product.md`, `detection.md`, `security-privacy.md`, `decisions.md` (D-0xx) y el roadmap maestro
