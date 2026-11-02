@@ -49,6 +49,15 @@ describe('scrubEvent', () => {
     expect(JSON.stringify(scrubbed)).not.toContain(TOKEN);
   });
 
+  it('quita la zona horaria que Cloudflare deja en contexts.culture', () => {
+    const scrubbed = scrubEvent(
+      event({ contexts: { culture: { timezone: 'America/Caracas' }, runtime: { name: 'x' } } }),
+    );
+
+    expect(scrubbed.contexts).not.toHaveProperty('culture');
+    expect(scrubbed.contexts).toHaveProperty('runtime');
+  });
+
   it('un token dentro de un mensaje queda como [token]', () => {
     const scrubbed = scrubEvent(
       event({

@@ -88,6 +88,8 @@ export function scrubBreadcrumb<T extends Breadcrumb>(crumb: T): T {
 export function scrubEvent<T extends Event>(event: T): T {
   const copy = scrubValue(event, 0) as Dict;
   delete copy.user;
+  // El SDK toma la zona horaria de `request.cf`: es una ubicación aproximada, y Pulso no la guarda.
+  if (isDict(copy.contexts)) delete copy.contexts.culture;
   if (isDict(copy.request)) {
     delete copy.request.data;
     delete copy.request.query_string;
