@@ -65,14 +65,19 @@ db_url="${admin_url%/*}/$db"
 started=$(date +%s)
 
 # Última defensa antes del DROP: el servidor al que llegó psql tiene que ser este mismo equipo
-# (NULL es un socket Unix).
+# (NULL es un socket Unix). Un Postgres en Docker detrás de un puerto publicado (el servicio del CI)
+# se ve a sí mismo con su IP de la red de Docker: esa sola dirección, exacta, se permite con
+# `RESTORE_ALLOW_SERVER_ADDR`. Ningún rango de IP privadas pasa por sí solo.
 server=$(psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 --tuples-only --no-align \
   --dbname "$admin_url" --command "SELECT coalesce(host(inet_server_addr()), 'local')")
+allowed="${RESTORE_ALLOW_SERVER_ADDR:-}"
 case "$server" in
   local | 127.* | ::1) ;;
   *)
-    echo "El servidor de RESTORE_ADMIN_URL no es local ($server): no se borra nada." >&2
-    exit 2
+    if [ -z "$allowed" ] || [ "$server" != "$allowed" ]; then
+      echo "El servidor de RESTORE_ADMIN_URL no es local ($server): no se borra nada." >&2
+      exit 2
+    fi
     ;;
 esac
 

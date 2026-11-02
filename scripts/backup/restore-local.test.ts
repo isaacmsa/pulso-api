@@ -119,6 +119,37 @@ describe('scripts/backup/restore-local.sh', () => {
     expect(readFileSync(seen, 'utf8').trim().split('\n')).toEqual(['||']);
   });
 
+  it('una IP privada no basta: solo pasa la dirección exacta de RESTORE_ALLOW_SERVER_ADDR', () => {
+    // un psql falso: el servidor dice ser 172.18.0.2 (la red de Docker de un runner) y cualquier
+    // otra orden (el DROP) deja la marca
+    const dir = join(work, `addr-${randomUUID()}`);
+    mkdirSync(dir);
+    const marker = join(dir, 'dropped');
+    writeFileSync(
+      join(dir, 'psql'),
+      `#!/usr/bin/env bash\nif [[ "$*" == *inet_server_addr* ]]; then echo 172.18.0.2; exit 0; fi\ntouch "${marker}"\nexit 1\n`,
+    );
+    chmodSync(join(dir, 'psql'), 0o755);
+    const { file, key } = dummyFiles();
+
+    for (const allow of [undefined, '', '172.18.0.3', '172.18.0.2,10.0.0.1']) {
+      const result = bash([restore, file, key], {
+        env: { RESTORE_ALLOW_SERVER_ADDR: allow },
+        pathPrefix: [dir],
+      });
+      expect(result.status, `permiso ${allow}`).toBe(2);
+      expect(result.stderr).toContain('172.18.0.2');
+      expect(existsSync(marker)).toBe(false);
+    }
+
+    const allowed = bash([restore, file, key], {
+      env: { RESTORE_ALLOW_SERVER_ADDR: '172.18.0.2' },
+      pathPrefix: [dir],
+    });
+    expect(allowed.status).not.toBe(2);
+    expect(existsSync(marker)).toBe(true);
+  });
+
   it('nunca restaura sobre pulso_dev ni pulso_test', () => {
     const { dir, marker } = trapTools();
     const { file, key } = dummyFiles();
@@ -151,7 +182,16 @@ describe('scripts/backup/restore-local.sh', () => {
     const db = `pulso_restore_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     const admin = adminSql();
     try {
-      const env = { RESTORE_ADMIN_URL: withDatabase(adminUrl(), 'postgres'), RESTORE_DB: db };
+      // En CI el Postgres de servicio se ve a sí mismo con la IP de la red de Docker, no la de
+      // loopback: el test permite exactamente la dirección de su propio servidor de pruebas
+      const [server] = await admin<
+        { addr: string | null }[]
+      >`SELECT host(inet_server_addr()) AS addr`;
+      const env = {
+        RESTORE_ADMIN_URL: withDatabase(adminUrl(), 'postgres'),
+        RESTORE_DB: db,
+        RESTORE_ALLOW_SERVER_ADDR: server?.addr ?? '',
+      };
       const first = bash([restore, file, keyFile], { env, pathPrefix: [pg] });
       expect(first.status, first.stderr).toBe(0);
       const lines = first.stdout.split('\n');

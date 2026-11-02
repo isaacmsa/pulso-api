@@ -71,6 +71,7 @@ export function bash(args: string[], { env = {}, pathPrefix = [], input }: RunOp
   delete base.BACKUP_AGE_RECIPIENT;
   delete base.RESTORE_ADMIN_URL;
   delete base.RESTORE_DB;
+  delete base.RESTORE_ALLOW_SERVER_ADDR;
   const merged: Record<string, string | undefined> = { ...base, ...env };
   merged.PATH = [...pathPrefix.filter(Boolean), process.env.PATH].join(':');
   return spawnSync('bash', args, { env: merged, encoding: 'utf8', input });
