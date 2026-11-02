@@ -60,7 +60,7 @@ El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs
 ## Fase 5 · Producción (S7 y S8)
 
 - [ ] Revisión de seguridad y rendimiento (skill `security-perf-review`), con atención al aislamiento del esquema `app` en Supabase
-- [ ] Confirmar los límites gratuitos de Workers, Hyperdrive y Supabase
+- [x] Confirmar los límites gratuitos de Workers, Hyperdrive y Supabase (2 nov 2026, tabla "Costos y techos" de `docs/architecture.md`)
 - [ ] `docs/runbook.md`: desplegar, volver atrás, restaurar, rotar secretos y la contraseña de la base, reactivar un proyecto pausado
 - [ ] Lote de la versión de producción de la app agregado a `test/fixtures/`
 - [ ] Despliegue a producción con las migraciones aplicadas
