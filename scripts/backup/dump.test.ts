@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   chmodSync,
@@ -15,80 +14,22 @@ import { join } from 'node:path';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminSql, createHome, testDb, truncateAll } from '../../test/integration/helpers';
+import {
+  adminUrl,
+  bash,
+  newKeyPair,
+  pgToolsDir,
+  requireAge,
+  testUrl,
+  withDatabase,
+} from './test-support';
 
-// Estos tests corren contra el PostgreSQL de `pnpm db:up` (proyecto `backup`). Necesitan
-// `age`/`age-keygen` y `pg_dump`/`pg_restore` 17: los del sistema o, para PostgreSQL, los del
-// contenedor de `compose.dev.yaml`. Si falta algo, el test lo dice y falla: nunca se salta.
-
+// Los requisitos (PostgreSQL de `pnpm db:up`, `age`, herramientas 17) están en `test-support.ts`.
 const script = join(import.meta.dirname, 'dump.sh');
-const composeFile = join(import.meta.dirname, '..', '..', 'compose.dev.yaml');
 const TABLES = ['homes', 'devices', 'events', 'outages', 'follows', 'push_tickets'] as const;
 
 const work = mkdtempSync(join(tmpdir(), 'pulso-backup-'));
 afterAll(() => rmSync(work, { recursive: true, force: true }));
-
-function onPath(command: string): boolean {
-  return spawnSync(command, ['--version'], { stdio: 'ignore' }).error === undefined;
-}
-
-/** `age` y `age-keygen` del sistema; si no están, el test falla diciendo qué falta. */
-function requireAge(): void {
-  if (onPath('age') && onPath('age-keygen')) return;
-  throw new Error(
-    'Faltan `age` y `age-keygen` en el PATH. Instálalos (brew install age, apt install age) y vuelve a correr los tests del respaldo.',
-  );
-}
-
-/**
- * Carpeta con `pg_dump` y `pg_restore` 17 para el PATH del script. Si el pg_dump del sistema ya es
- * 17, no hace falta nada (cadena vacía). Si no, genera envoltorios que corren las herramientas del
- * contenedor de `compose.dev.yaml`; dentro del contenedor la base está en el puerto 5432.
- */
-function pgToolsDir(): string {
-  const host = spawnSync('pg_dump', ['--version'], { encoding: 'utf8' });
-  if (host.status === 0 && /\) 17\./.test(host.stdout)) return '';
-  const container = spawnSync(
-    'docker',
-    ['compose', '-f', composeFile, 'ps', '--status', 'running', '-q', 'postgres'],
-    { encoding: 'utf8' },
-  );
-  if (container.status !== 0 || !container.stdout.trim()) {
-    throw new Error(
-      'Falta pg_dump 17: el del sistema no es 17 y el contenedor de PostgreSQL no está corriendo. Instala postgresql-client-17 o corre pnpm db:up.',
-    );
-  }
-  const dir = join(work, 'pg17');
-  mkdirSync(dir, { recursive: true });
-  for (const tool of ['pg_dump', 'pg_restore']) {
-    const shim = join(dir, tool);
-    writeFileSync(
-      shim,
-      `#!/usr/bin/env bash
-args=()
-for a in "$@"; do args+=("\${a//localhost:54322/localhost:5432}"); done
-exec docker compose -f "${composeFile}" exec -T postgres ${tool} "\${args[@]}"
-`,
-    );
-    chmodSync(shim, 0o755);
-  }
-  return dir;
-}
-
-type RunOptions = {
-  env?: Record<string, string | undefined>;
-  pathPrefix?: string[];
-  input?: string;
-};
-
-/** Corre `bash <comando…>` con un entorno limpio de las variables del respaldo. */
-function bash(args: string[], { env = {}, pathPrefix = [], input }: RunOptions = {}) {
-  const base = { ...process.env };
-  delete base.DATABASE_URL;
-  delete base.BACKUP_AGE_RECIPIENT;
-  const merged: Record<string, string | undefined> = { ...base, ...env };
-  merged.PATH = [...pathPrefix.filter(Boolean), process.env.PATH].join(':');
-  return spawnSync('bash', args, { env: merged, encoding: 'utf8', input });
-}
 
 /** Un `pg_dump` falso (carpeta para el PATH) cuyo cuerpo es el script dado. */
 function fakePgDump(body: string): string {
@@ -99,30 +40,12 @@ function fakePgDump(body: string): string {
   return dir;
 }
 
-/** Destinatario de un par `age` efímero (la clave privada se queda en la carpeta temporal). */
-function newRecipient(): string {
-  const keygen = bash(['-c', `age-keygen -o "${join(work, `${randomUUID()}.key`)}" 2>&1`]);
-  const recipient = /(age1[a-z0-9]+)/.exec(keygen.stdout)?.[1];
-  if (!recipient) throw new Error(`age-keygen no dio una clave pública: ${keygen.stdout}`);
-  return recipient;
-}
+const newRecipient = (): string => newKeyPair(work).recipient;
 
 function newOutDir(): string {
   const dir = join(work, randomUUID());
   mkdirSync(dir);
   return dir;
-}
-
-function testUrl(): string {
-  const url = process.env.TEST_DATABASE_URL;
-  if (!url) throw new Error('Falta TEST_DATABASE_URL (ver .env.example)');
-  return url;
-}
-
-function withDatabase(url: string, database: string): string {
-  const parsed = new URL(url);
-  parsed.pathname = `/${database}`;
-  return parsed.toString();
 }
 
 describe('scripts/backup/dump.sh', () => {
@@ -157,7 +80,7 @@ describe('scripts/backup/dump.sh', () => {
 
   it('si pg_dump no logra conectar, el respaldo sale con error y no deja archivo', () => {
     requireAge();
-    const pg = pgToolsDir();
+    const pg = pgToolsDir(work);
     const dir = newOutDir();
     const out = join(dir, 'pulso.dump.age');
     // el puerto 1 no tiene nada escuchando
@@ -234,7 +157,7 @@ describe('scripts/backup/dump.sh', () => {
 
   it('con un destinatario de prueba, el archivo cifrado se descifra y restaura las 6 tablas en una base nueva', async () => {
     requireAge();
-    const pg = pgToolsDir();
+    const pg = pgToolsDir(work);
 
     // datos en las seis tablas
     const { homeId, deviceId } = await createHome(sql, { since: 1_000 });
@@ -257,11 +180,7 @@ describe('scripts/backup/dump.sh', () => {
       VALUES (${randomUUID()}, ${follower}, 5000)`;
 
     // par de claves efímero: la clave privada solo existe en esta carpeta temporal
-    const keyFile = join(work, 'restore.key');
-    const keygen = bash(['-c', `age-keygen -o "${keyFile}" 2>&1`]);
-    expect(keygen.status).toBe(0);
-    const recipient = /(age1[a-z0-9]+)/.exec(keygen.stdout)?.[1];
-    expect(recipient).toBeTruthy();
+    const { keyFile, recipient } = newKeyPair(work);
 
     const dir = newOutDir();
     const out = join(dir, 'pulso-test.dump.age');
@@ -286,8 +205,7 @@ describe('scripts/backup/dump.sh', () => {
     await admin.unsafe(`CREATE DATABASE ${restoreDb}`);
     let restored: postgres.Sql | undefined;
     try {
-      const adminUrl = process.env.TEST_ADMIN_DATABASE_URL ?? '';
-      const restoreUrl = withDatabase(adminUrl, restoreDb);
+      const restoreUrl = withDatabase(adminUrl(), restoreDb);
       const restore = bash(
         [
           '-c',
