@@ -128,6 +128,24 @@ describe('la consulta de confirmaciones (tarea 4.4)', () => {
     expect(result.homes[0]?.outages[0]?.events).toHaveLength(1);
   });
 
+  it('deja fuera un corte cuyo margen de 2 h ya cae antes de los 30 días', async () => {
+    const { homeId } = await createHome(sql, { since: now - 40 * DAY });
+    await insertOutage(homeId, now - 30 * DAY + HOUR, now - 30 * DAY + 2 * HOUR, null);
+
+    expect((await run()).homes[0]?.outages).toEqual([]);
+  });
+
+  it('un corte sin fin trae a lo sumo 48 h de eventos desde su inicio', async () => {
+    const { homeId, deviceId } = await createHome(sql, { since: now - 10 * DAY });
+    const start = now - 5 * DAY;
+    await insertOutage(homeId, start, null, null);
+    await insertEvent(deviceId, homeId, start + HOUR, { kind: 'snapshot' });
+    await insertEvent(deviceId, homeId, start + 3 * DAY, { kind: 'snapshot' }); // fuera del tope
+
+    const events = (await run()).homes[0]?.outages[0]?.events ?? [];
+    expect(events.map((e) => e.at)).toEqual([start + HOUR]);
+  });
+
   it('sin casas devuelve una lista vacía', async () => {
     expect((await run()).homes).toEqual([]);
   });

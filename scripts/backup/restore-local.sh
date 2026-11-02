@@ -36,19 +36,45 @@ if [ "$db" = "pulso_dev" ] || [ "$db" = "pulso_test" ] || [ "$db" = "postgres" ]
   echo "RESTORE_DB no puede ser $db: el script borra esa base." >&2
   exit 2
 fi
+# libpq tiene otras formas de elegir el servidor además del host de la URL: variables PG*, un
+# `?host=`/`?hostaddr=`/`?service=` y varios hosts separados por comas. Ninguna se acepta.
+unset PGHOST PGHOSTADDR PGPORT PGSERVICE PGSERVICEFILE PGDATABASE
+if [[ "$admin_url" == *\?* ]]; then
+  echo "RESTORE_ADMIN_URL no admite parámetros (?…): pueden cambiar el servidor." >&2
+  exit 2
+fi
 rest="${admin_url#*://}"
-authority="${rest%%[/?]*}"
+if [[ "$rest" != */* ]]; then
+  echo "RESTORE_ADMIN_URL tiene que terminar en /<base> (p. ej. /postgres)." >&2
+  exit 2
+fi
+authority="${rest%%/*}"
 hostport="${authority##*@}"
+if [[ "$hostport" == *,* ]]; then
+  echo "RESTORE_ADMIN_URL no admite varios hosts." >&2
+  exit 2
+fi
 host="${hostport%%:*}"
 if [ "$host" != "localhost" ] && [ "$host" != "127.0.0.1" ]; then
   echo "RESTORE_ADMIN_URL tiene que apuntar a localhost (es $host)." >&2
   exit 2
 fi
 # La misma cadena con la base nueva en lugar de la de administración
-db_url="${admin_url%%\?*}"
-db_url="${db_url%/*}/$db"
+db_url="${admin_url%/*}/$db"
 
 started=$(date +%s)
+
+# Última defensa antes del DROP: el servidor al que llegó psql tiene que ser este mismo equipo
+# (NULL es un socket Unix).
+server=$(psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 --tuples-only --no-align \
+  --dbname "$admin_url" --command "SELECT coalesce(host(inet_server_addr()), 'local')")
+case "$server" in
+  local | 127.* | ::1) ;;
+  *)
+    echo "El servidor de RESTORE_ADMIN_URL no es local ($server): no se borra nada." >&2
+    exit 2
+    ;;
+esac
 
 psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 --dbname "$admin_url" \
   --command "DROP DATABASE IF EXISTS $db WITH (FORCE)" \

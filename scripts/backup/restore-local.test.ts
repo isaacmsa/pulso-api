@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -70,6 +78,45 @@ describe('scripts/backup/restore-local.sh', () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('localhost');
     expect(existsSync(marker)).toBe(false);
+  });
+
+  it('no acepta otra forma de elegir el servidor: query, varios hosts o variables PG*', () => {
+    const { dir, marker } = trapTools();
+    const { file, key } = dummyFiles();
+    const local = 'postgres://postgres:postgres@localhost:54322/postgres';
+    const cases: Record<string, string | undefined>[] = [
+      { RESTORE_ADMIN_URL: `${local}?host=192.0.2.1` },
+      { RESTORE_ADMIN_URL: `${local}?hostaddr=192.0.2.1` },
+      {
+        RESTORE_ADMIN_URL:
+          'postgres://postgres:postgres@localhost:54322,db.example.com:5432/postgres',
+      },
+      { RESTORE_ADMIN_URL: 'postgres://postgres:postgres@localhost:54322' },
+    ];
+    for (const env of cases) {
+      const result = bash([restore, file, key], { env, pathPrefix: [dir] });
+      expect(result.status, JSON.stringify(env)).toBe(2);
+    }
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('ignora PGHOST, PGHOSTADDR y PGSERVICE del entorno', () => {
+    // un psql falso que deja en la marca las variables que vio
+    const dir = join(work, `env-${randomUUID()}`);
+    mkdirSync(dir);
+    const seen = join(dir, 'seen');
+    writeFileSync(
+      join(dir, 'psql'),
+      `#!/usr/bin/env bash\necho "\${PGHOST:-}|\${PGHOSTADDR:-}|\${PGSERVICE:-}" >> "${seen}"\nexit 1\n`,
+    );
+    chmodSync(join(dir, 'psql'), 0o755);
+    const { file, key } = dummyFiles();
+    const result = bash([restore, file, key], {
+      env: { PGHOST: 'db.example.com', PGHOSTADDR: '192.0.2.1', PGSERVICE: 'prod' },
+      pathPrefix: [dir],
+    });
+    expect(result.status).not.toBe(0);
+    expect(readFileSync(seen, 'utf8').trim().split('\n')).toEqual(['||']);
   });
 
   it('nunca restaura sobre pulso_dev ni pulso_test', () => {

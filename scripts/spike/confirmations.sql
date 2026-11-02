@@ -5,14 +5,17 @@
 -- Sin ids de dispositivo ni de casa: cada casa es un número, en el orden en que se creó. Los
 -- eventos van como los mandó el teléfono, con `at` ya corregido, igual que la ventana de
 -- `ingest_batch`. Cada corte trae los eventos de la casa desde 2 h antes de su inicio hasta 2 h
--- después de su fin (o de ahora, si sigue abierto). `reports` trae los botones y las respuestas de
--- confirmación de la casa en los 30 días, para buscar los cortes que el clasificador no vio.
--- Más de 30 días no tiene sentido: la retención ya borró esos eventos.
+-- después de su fin. Uno sin fin (`abierto` o `sin_datos`) llega hasta ahora con un tope de 48 h
+-- desde su inicio: un `sin_datos` viejo traería semanas de eventos que no dicen nada del corte.
+-- `reports` trae los botones y las respuestas de confirmación de la casa en los 30 días, para
+-- buscar los cortes que el clasificador no vio. Solo entran los cortes cuya ventana completa cabe
+-- en los 30 días: antes de eso, la retención ya borró sus eventos.
 WITH params AS (
   SELECT
     (extract(epoch FROM now()) * 1000)::bigint AS now_ms,
     30 * 86400000::bigint AS days_ms,
-    2 * 3600000::bigint AS margin_ms
+    2 * 3600000::bigint AS margin_ms,
+    48 * 3600000::bigint AS open_cap_ms
 ),
 numbered AS (
   SELECT h.id, row_number() OVER (ORDER BY h.created_at, h.id) AS n
@@ -35,11 +38,11 @@ SELECT json_build_object(
             FROM app.events e
             WHERE e.home_id = o.home_id
               AND e.at >= o.started_at - p.margin_ms
-              AND e.at <= coalesce(o.ended_at, p.now_ms) + p.margin_ms
+              AND e.at <= coalesce(o.ended_at, least(p.now_ms, o.started_at + p.open_cap_ms)) + p.margin_ms
           ), '[]'::json)
         ) ORDER BY o.started_at)
         FROM app.outages o
-        WHERE o.home_id = hn.id AND o.started_at >= p.now_ms - p.days_ms
+        WHERE o.home_id = hn.id AND o.started_at - p.margin_ms >= p.now_ms - p.days_ms
       ), '[]'::json),
       'reports', coalesce((
         SELECT json_agg(e.payload || jsonb_build_object('at', e.at) ORDER BY e.at, e.id)
