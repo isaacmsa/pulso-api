@@ -104,7 +104,9 @@ const stepBase = (state: DetectionState, s: SnapshotEvent): StepResult =>
 // Modo UPS: el Wi-Fi sigue arriba durante el corte, así que solo la carga manda.
 const stepUps = (state: DetectionState, s: SnapshotEvent): StepResult => {
   if (state.open === null) {
-    if (state.prevPowered && !s.plugged && atHome(s) && s.interactive === false) {
+    // MIUI enciende la pantalla al desenchufar: si el teléfono sigue bloqueado, nadie lo está usando.
+    const untouched = s.interactive === false || s.locked === true;
+    if (state.prevPowered && !s.plugged && atHome(s) && untouched) {
       return {
         state: {
           ...state,

@@ -60,13 +60,13 @@ Con corte abierto:
 
 ### Modo router con UPS: el Wi-Fi no se cae
 
-- **Abre** cuando el snapshot anterior era `powered` y el actual es `!plugged && atHome && interactive === false`. Confianza `media`.
+- **Abre** cuando el snapshot anterior era `powered` y el actual es `!plugged && atHome && (interactive === false || locked === true)`. Confianza `media`. MIUI enciende la pantalla unos segundos al desenchufar, así que en un Xiaomi `interactive` llega en `true` aunque nadie lo toque; si el teléfono sigue bloqueado, nadie lo está usando (A-050).
 - También abre con la regla del modo base (corriente y Wi-Fi caen juntos: el UPS se agotó o no había UPS). Confianza `alta`.
 - **Cierra** con el primer snapshot `plugged`, aunque el Wi-Fi todavía no haya vuelto.
 - **Descarta** un corte `media` si aparece en otra red (`onWifi && homeWifi === false`; **regla con huella**). Un corte `alta` sigue abierto en otra red, como en el modo base: pudo abrirse con un snapshot que ya estaba en otra red (se fue la luz, murió el router y el teléfono se pasó al Wi-Fi del vecino), y repetir ese snapshot no puede descartarlo. Un `media` siempre se abre en el Wi-Fi de casa, así que ahí no hay conflicto.
 - Si se agota el UPS y cae el Wi-Fi, el corte sigue abierto.
 - No aplica el descarte del modo base por Wi-Fi desconocido sin carga (`onWifi && !plugged && homeWifi === null`): un corte `media` se abre justo con Wi-Fi y sin carga, así que sin huella esa regla lo descartaría con la primera copia del snapshot que lo abrió, y rompería la invariancia.
-- Con `interactive` en `true` o `null` al desenchufar, no abre.
+- Con `interactive` en `true` o `null` al desenchufar y `locked` distinto de `true` (desbloqueado, `null` o ausente en versiones viejas), no abre.
 - Los reportes y las confirmaciones funcionan igual que en el modo base.
 
 ### Reportes y confirmaciones
@@ -109,7 +109,7 @@ Viven en `src/domain/detection/*.test.ts` y corren con `pnpm test`. El código e
 | Modo base | Modo UPS | Reportes y confirmaciones |
 | --- | --- | --- |
 | Cierra cuando vuelven corriente y Wi-Fi | Abre y cierra cuando la corriente se va sola con la pantalla apagada | `sin_luz` sin corte abierto abre uno manual |
-| Descarta caídas de menos de 10 min | Ignora el desenchufe con la pantalla encendida | `hay_luz` cierra el corte abierto |
+| Descarta caídas de menos de 10 min | Ignora el desenchufe con la pantalla encendida y el teléfono desbloqueado; abre si sigue bloqueado | `hay_luz` cierra el corte abierto |
 | Descarta Wi-Fi desconocido sin carga | Ignora `interactive: null` | `fluctuando` no crea cortes |
 | Sigue abierto mientras arranca el router | Ignora si no estaba en casa | Un snapshot repetido no cierra un corte manual |
 | Tolera señales desordenadas | Sigue abierto si el UPS se agota | El corte manual se cierra al entrar en `powered` |

@@ -30,6 +30,26 @@ describe('detectOutages (modo UPS)', () => {
       [],
     );
   });
+  it('abre con la pantalla encendida si el teléfono sigue bloqueado (MIUI la enciende al desenchufar)', () => {
+    // Medido en el Redmi A5 el 4 de noviembre: bloqueado y boca abajo, al sacar el cable reporta interactive true.
+    expect(
+      ups([
+        snap(0, true, true, idle),
+        snap(5, false, true, { interactive: true, locked: true }),
+        snap(95, true, true),
+      ]),
+    ).toEqual([outage(5, 95, 'cerrado')]);
+  });
+  it('ignora el desenchufe con la pantalla encendida y el teléfono desbloqueado', () => {
+    expect(
+      ups([snap(0, true, true, idle), snap(5, false, true, { interactive: true, locked: false })]),
+    ).toEqual([]);
+  });
+  it('sin locked (versiones viejas) sigue mirando solo la pantalla', () => {
+    expect(
+      ups([snap(0, true, true, idle), snap(5, false, true, { interactive: true, locked: null })]),
+    ).toEqual([]);
+  });
   it('ignora interactive null', () => {
     expect(ups([snap(0, true, true), snap(5, false, true)])).toEqual([]);
   });

@@ -26,6 +26,9 @@ export const snapshotEventSchema = z
     homeWifi: z.boolean().nullable(),
     internet: z.boolean().nullable(),
     interactive: z.boolean().nullable(),
+    // Opcional: las versiones de la app anteriores a la 0.2 no lo mandan. MIUI enciende la pantalla unos segundos al
+    // desenchufar, así que en el modo UPS "bloqueado" distingue un corte de alguien que desenchufa para usar el teléfono.
+    locked: z.boolean().nullable().optional(),
     batteryPct: z.number().int().min(0).max(100).nullable(),
   })
   .openapi('SnapshotEvent');

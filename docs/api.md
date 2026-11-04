@@ -108,6 +108,7 @@ export const snapshotEventSchema = z.object({
   homeWifi: z.boolean().nullable(),
   internet: z.boolean().nullable(),
   interactive: z.boolean().nullable(),
+  locked: z.boolean().nullable().optional(), // desde la app 0.2; ver A-050
   batteryPct: z.number().int().min(0).max(100).nullable(),
 });
 
