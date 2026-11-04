@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { at, snap } from '../../testing/builders';
 import type { DeviceEvent } from '../events/schema';
@@ -108,5 +109,29 @@ describe('detectOutages (modo UPS)', () => {
         snap(30, false, true, { homeWifi: false }),
       ]),
     ).toEqual([outage(5, 30, 'descartado')]);
+  });
+});
+
+describe('detectOutages (modo UPS, eventos reales del Redmi A5, 3 y 4 de noviembre)', () => {
+  const events = JSON.parse(
+    readFileSync(
+      new URL('../../../test/fixtures/real/redmi-a5-2026-11-03-ups.json', import.meta.url),
+      'utf8',
+    ),
+  ) as DeviceEvent[];
+  const detected = ups(events).filter((o) => o.confidence !== 'manual');
+
+  it('el corte real de las 7:42 p. m. (app 0.1, sin locked y con la pantalla encendida por MIUI) no se abre', () => {
+    expect(detected.some((o) => o.start === Date.UTC(2026, 10, 3, 23, 42, 20, 326))).toBe(false);
+  });
+  it('el desenchufe bloqueado de las 11:09:31 (app 0.2) abre, y el cable de vuelta 28 s después lo descarta', () => {
+    expect(detected).toContainEqual(
+      expect.objectContaining({
+        start: 1793804968348,
+        end: 1793804996088,
+        status: 'descartado',
+        confidence: 'media',
+      }),
+    );
   });
 });
