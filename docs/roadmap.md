@@ -2,65 +2,71 @@
 
 **Qué responde este documento**
 
-- Qué falta en `pulso-api` en cada fase, con horas y criterio de cierre
+- Dónde está el estado del backend y lo que le falta
+- Qué le toca a este repo en cada fase del tablero maestro
+- Qué construyó el backend en las fases 0 a 5 del plan anterior
 
-El calendario maestro, las cuentas y los hitos de Play están en `pulso-app/docs/roadmap.md`. Las semanas coinciden: S1 es del 19 al 25 de octubre.
+El estado de Pulso vive en un solo lugar: el tablero maestro, `pulso-app/docs/roadmap.md` (en `~/projects/personal/mobile/pulso-app`), con sus archivos de fase en `pulso-app/docs/phases/`. Aquí no se marca nada (D-046 de la app): este documento dice qué le toca al backend en cada fase y guarda el registro de lo construido.
 
-**Estado actual:** fase 1 en staging (`https://pulso-api-staging.isaac-mendozasa.workers.dev`). Falta que Isaac confirme en el panel de Hyperdrive que un latido gasta una consulta y que `anon` no lee `app.homes`. Plan detallado en `docs/plans/2026-10-20-fase-1-api.md`.
+Staging: `https://pulso-api-staging.isaac-mendozasa.workers.dev`. Producción todavía no existe: es la fase 7 del tablero.
 
-## Fase 0 · Contrato y clasificador (S1 y S2, ~8,5 h)
+## Lo que le toca a este repo
 
-- [x] Repo, Biome, Vitest y CI (1 h)
-- [x] Contrato de eventos en Zod (1 h)
-- [x] Clasificador: modo base, modo UPS, reportes y confirmaciones, con todos los tests de `docs/classifier.md` (4 h)
-- [x] Resumen por día en America/Caracas (1 h)
-- [x] `pnpm spike:analyze` (1,5 h)
+| Fase del tablero | Qué hace el backend |
+| --- | --- |
+| 7 · API en producción con respaldo | Casi todo: Hyperdrive de producción, primer deploy, primer respaldo y su restauración, textos de la política y arreglos chicos del contrato y de los documentos |
+| 8 · Detección con datos reales | Analizar los exportes con `pnpm spike:analyze` y un test que valide contra el esquema un evento real con `locked` |
+| 9 · Primer build con EAS y push | Huella del keystore de EAS en `ANDROID_CERT_SHA256` de staging |
+| 10 · Revisión de seguridad | La revisión de este repo y los hallazgos que las revisiones de fase dejaron aparcados |
+| 11 · Play Console y envío de la prueba cerrada | Huella de firma de Play en `ANDROID_CERT_SHA256` de producción (B4), lote real de la versión que se publica y deploy |
+| 12 · Prueba cerrada: 14 días con testers | Umbrales con las confirmaciones de los testers (D-013, B7) |
+| 13 · Producción y lanzamiento | Lote de la versión de producción (B9) y deploy final |
 
-**Lista cuando:** `pnpm test` está en verde y un exporte real del Xiaomi pasa por `pnpm spike:analyze`.
+La fase 6 es solo de la app.
 
-## Fase 1 · API en staging (S3, ~10 h)
+## Lo construido
 
-- [x] Cuentas de Cloudflare y Supabase. Proyecto `pulso-staging` en `us-west-2` (A-026) con el rol `pulso_api`, su Hyperdrive (sin caché) y el `id` en `wrangler.jsonc`. Producción se crea en la fase 2 (A-018) y los crons llegan en las fases 3 y 4 (A-019) (1 h)
-- [x] Drizzle: `src/db/schema.ts` en el esquema `app` con RLS, `drizzle-kit generate`, `compose.dev.yaml` con PostgreSQL local y Hyperdrive con `localConnectionString` (1,5 h)
-- [x] Funciones `app.ingest_batch` y `app.apply_outages` en una migración, con tests de integración contra PostgreSQL (1,5 h)
-- [x] Middleware: auth con SHA-256 y latido en un solo `UPDATE … RETURNING`, rate limit y errores (1,5 h)
-- [x] `devices` y `homes`: `POST /v1/devices`, `POST /v1/homes`, `PATCH`, `DELETE` en cascada (1 h)
-- [x] `POST /v1/events` con `reconcileOutages` y `deriveHomeStatus` en `domain/` (con tests) y `GET /v1/homes/me/status` (2 h)
-- [x] `GET /openapi.json`, `/docs` en staging, `pnpm openapi:export` y `openapi:check`; test de contrato con un lote real; `deploy.yml` con migraciones y deploy a staging (1,5 h)
+El detalle de cada tarea, con sus decisiones, está en los planes de `docs/plans/`, que quedan como registro.
 
-**Lista cuando:** reenviar el mismo lote devuelve `duplicated` igual al número de eventos en staging, y un latido gasta una sola consulta (verificado en el panel de Hyperdrive).
+### Fase 0 · Contrato y clasificador
 
-## Fase 2 · Historial, privacidad y producción (S4, ~2,5 h)
+- Repo, Biome, Vitest y CI
+- Contrato de eventos en Zod
+- Clasificador: modo base, modo UPS, reportes y confirmaciones, con todos los tests de `docs/classifier.md`
+- Resumen por día en America/Caracas
+- `pnpm spike:analyze`
 
-- [x] `GET /v1/homes/me/outages` con `summarizeOutages` (1 h)
-- [x] `GET /privacidad` y `GET /borrar-datos` con `hono/jsx`, con el contenido de `pulso-app/docs/security-privacy.md` (0,5 h)
-- [ ] Proyecto de Supabase `pulso` con el rol `pulso_api` y su Hyperdrive (A-018). Entorno `production` y despliegue manual con aprobación; workflow nocturno de respaldo con `pg_dump` cifrado (1 h)
+### Fase 1 · API en staging
 
-**Lista cuando:** la URL de `/privacidad` de producción carga y está puesta en Play Console, y existe el primer respaldo.
+- Cuentas de Cloudflare y Supabase. Proyecto `pulso-staging` en `us-west-2` (A-026), con el rol `pulso_api` y su Hyperdrive sin caché
+- Drizzle: esquema `app` con RLS, PostgreSQL local y Hyperdrive con `localConnectionString`
+- Funciones `app.ingest_batch` y `app.apply_outages`, con tests de integración contra PostgreSQL
+- Middleware: auth con SHA-256 y latido en un solo `UPDATE … RETURNING`, límites y errores
+- `devices` y `homes`: `POST /v1/devices`, `POST /v1/homes`, `PATCH` y `DELETE` en cascada
+- `POST /v1/events` con `reconcileOutages` y `deriveHomeStatus`, y `GET /v1/homes/me/status`
+- `GET /openapi.json`, `/docs` en staging, `pnpm openapi:export` y `openapi:check`, test de contrato con un lote real y `deploy.yml`
 
-## Fase 3 · Push y familia (S5, ~6 h)
+### Fase 2 · Historial, privacidad y producción
 
-- [x] Módulo `push`: envío a Expo Push, `push_tickets`, recibos y limpieza de tokens con `DeviceNotRegistered` (2 h)
-- [x] Reglas de `docs/api.md` (inicio, regreso, resumen tardío, confirmación), en el cron `sweep` y al cerrar un corte, sin repetir avisos (1,5 h)
-- [x] `POST/GET/DELETE /v1/follows` y `POST /v1/homes/me/share-code` (1,5 h)
-- [ ] `GET /c/:code` con caché de 30 s y `/.well-known/assetlinks.json` (1 h)
+- `GET /v1/homes/me/outages` con `summarizeOutages`
+- `GET /privacidad` y `GET /borrar-datos`
+- Entorno `production` en `wrangler.jsonc`, `deploy-production.yml` con aprobación manual y `backup.yml` con `pg_dump` cifrado. Están sin estrenar: es la fase 7 del tablero
 
-**Lista cuando:** un corte simulado produce exactamente un push de inicio y uno de regreso, aunque el cron corra dos veces.
+### Fase 3 · Push y familia
 
-## Fase 4 · Robustez (S6, ~4,5 h)
+- Módulo `push`: envío a Expo Push, `push_tickets`, recibos y limpieza de tokens con `DeviceNotRegistered`
+- Reglas de inicio, regreso, resumen tardío y confirmación, sin repetir avisos
+- `POST/GET/DELETE /v1/follows` y `POST /v1/homes/me/share-code`
+- `GET /c/:code` y `/.well-known/assetlinks.json`, que responde 404 hasta tener la huella de Play (fase 11 del tablero)
 
-- [x] `sweep`: "sin noticias" (40 min sin latido) y `sin_datos` (24 h abierto sin latido), y los cortes cuyo inicio ya se purgó fuera de la reconciliación (1 h, A-037, A-038, A-042, A-049)
-- [x] Cron `retention`: eventos de 30 días, dispositivos inactivos de 180 días con su casa y registros sin uso de 7 días, en una consulta (1 h, adelantado antes de producción, A-042)
-- [x] `@sentry/cloudflare` con los filtros de `pulso-app/docs/security-privacy.md`: solo con `SENTRY_DSN`, sin tokens ni encabezados ni cuerpos (0,75 h, A-039; falta que Isaac cargue el DSN, B6)
-- [ ] Ajuste de umbrales con las confirmaciones, con un test por caso (1,25 h)
-- [ ] Primera restauración probada de un respaldo en el PostgreSQL local (0,5 h)
+### Fase 4 · Robustez
 
-**Lista cuando:** 45 minutos sin latido dejan la casa en `sin_noticias`, el siguiente latido la regresa, y hay una restauración anotada.
+- `sweep`: «sin noticias» (40 min sin latido) y `sin_datos` (A-037, A-038, A-042, A-049)
+- Cron `retention` (A-042)
+- `@sentry/cloudflare` con filtros, apagado mientras no haya `SENTRY_DSN` (A-039)
+- Consulta de confirmaciones para D-013 y script de restauración local de un respaldo
 
-## Fase 5 · Producción (S7 y S8)
+### Fase 5 · Producción
 
-- [ ] Revisión de seguridad y rendimiento (skill `security-perf-review`), con atención al aislamiento del esquema `app` en Supabase
-- [x] Confirmar los límites gratuitos de Workers, Hyperdrive y Supabase (2 nov 2026, tabla "Costos y techos" de `docs/architecture.md`)
-- [x] `docs/runbook.md`: desplegar, volver atrás, restaurar, rotar secretos y la contraseña de la base, reactivar un proyecto pausado
-- [ ] Lote de la versión de producción de la app agregado a `test/fixtures/`
-- [ ] Despliegue a producción con las migraciones aplicadas
+- Límites gratuitos de Workers, Hyperdrive y Supabase confirmados el 2 de noviembre de 2026 (tabla «Costos y techos» de `docs/architecture.md`)
+- `docs/runbook.md`: desplegar, volver atrás, restaurar, rotar secretos y reactivar un proyecto pausado

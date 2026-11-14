@@ -9,11 +9,11 @@ Backend de Pulso, la app Android que detecta sola los cortes de luz de una casa 
 
 La app vive en `pulso-app` (`~/projects/personal/mobile/pulso-app`). Ahí están el producto, la detección en el teléfono, la privacidad, Play Store y el roadmap maestro.
 
-**Estado actual:** fase 1 desplegada en staging (`https://pulso-api-staging.isaac-mendozasa.workers.dev`); falta la confirmación del panel de Hyperdrive. Lo pendiente está en `docs/roadmap.md` y el plan paso a paso en `docs/plans/`.
+**Estado y fases:** el estado no se copia en este archivo. Vive en el tablero maestro, `~/projects/personal/mobile/pulso-app/docs/roadmap.md`, que cubre los dos repos, y cada fase tiene su archivo en `pulso-app/docs/phases/`. Si Isaac pide el estatus o dice «continúa la fase N», lee ese tablero y sigue su sección «Cómo se usa este tablero». Staging: `https://pulso-api-staging.isaac-mendozasa.workers.dev`.
 
 ## Comandos
 
-Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en el mismo commit.
+Si cambian, actualiza esta tabla en el mismo commit.
 
 | Tarea | Comando |
 | --- | --- |
@@ -24,12 +24,12 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 | Analizar un exporte del registrador | `pnpm spike:analyze <archivo.json>` |
 | Mover un exporte real en el tiempo para publicarlo en `test/fixtures/exports/` | `pnpm fixtures:shift <entrada.json> <salida.json>` |
 | PostgreSQL local | `pnpm db:up` (`docker compose -f compose.dev.yaml up -d --wait`, puerto 54322) |
-| API local (fase 1) | `cp .dev.vars.example .dev.vars` una vez; `pnpm dev` (`wrangler dev`, puerto 8787) |
-| El Xiaomi contra la API local (fase 1) | `adb reverse tcp:8787 tcp:8787` |
+| API local | `cp .dev.vars.example .dev.vars` una vez; `pnpm dev` (`wrangler dev`, puerto 8787) |
+| El Xiaomi contra la API local | `adb reverse tcp:8787 tcp:8787` |
 | Generar y aplicar migraciones | `pnpm db:generate` / `pnpm db:migrate` (usa `DATABASE_URL`) |
 | Regenerar los tipos del Worker tras cambiar `wrangler.jsonc` | `pnpm cf-typegen` |
-| Regenerar y verificar el contrato (fase 1) | `pnpm openapi:export` / `pnpm openapi:check` |
-| Deploy a staging (fase 1) | Cuando `ci` pasa en un push a `main` (`deploy.yml`, despliega el commit que probó `ci`); a mano: `pnpm deploy:staging` |
+| Regenerar y verificar el contrato | `pnpm openapi:export` / `pnpm openapi:check` |
+| Deploy a staging | Cuando `ci` pasa en un push a `main` (`deploy.yml`, despliega el commit que probó `ci`); a mano: `pnpm deploy:staging` |
 | Deploy a producción | Solo a mano: Actions > `deploy-production` > Run workflow (`ref` por defecto `main`), con la aprobación de Isaac en el Environment `production` (A-029) |
 | Secreto en un entorno | `pnpm exec wrangler secret put <NOMBRE> --env staging` |
 | Volver a la versión anterior | `pnpm exec wrangler rollback --env production` |
@@ -59,7 +59,7 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 10. **Cada cambio de esquema es una migración nueva generada por `drizzle-kit`.** Nunca editar una ya aplicada. Las migraciones solo agregan, para que `wrangler rollback` funcione, y se aplican antes de desplegar el código.
 11. **Ningún push se repite**: se marca en `outages` con `UPDATE … WHERE …_notified_at IS NULL RETURNING` antes de enviar.
 12. **Secretos con `wrangler secret put`**; la cadena de conexión, solo en Hyperdrive y en los secretos de GitHub; en local, en `.dev.vars` (en `.gitignore`), que lleva también `TOKEN_SIGNING_KEY` (genéralo con `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='`; rotarlo invalida todos los tokens). Nada secreto en `wrangler.jsonc`.
-13. **Al terminar una tarea, márcala en `docs/roadmap.md` en el mismo commit**, y registra las decisiones internas en `docs/decisions.md`.
+13. **Al terminar una tarea, márcala en el archivo de su fase (`pulso-app/docs/phases/`)** y sigue los pasos 3 y 4 de «Para trabajar una fase» del tablero (`pulso-app/docs/roadmap.md`): es lo que lee la siguiente sesión para saber por dónde seguir. Ese cambio va en un commit de `pulso-app` hecho junto al de este repo. Las decisiones internas se registran en `docs/decisions.md`.
 
 ## Trampas conocidas
 
@@ -68,7 +68,7 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 - **Una conexión por petición**: el cliente de postgres.js se crea dentro del handler con `env.HYPERDRIVE.connectionString`, nunca a nivel de módulo.
 - **`bigint` en postgres.js** llega como `string` por defecto. Configurar Drizzle con `mode: 'number'` en las columnas de horas (los epoch ms caben en un `number`).
 - **Migraciones por el pooler de sesión** de Supabase (IPv4, puerto 5432, usuario `pulso_api.<ref>` con la contraseña de `pulso_api`, no la de `postgres`, A-017). Staging está en `us-west-2`: host `aws-1-us-west-2.pooler.supabase.com` (A-026); un host de otra región responde "tenant not found". Nunca por Hyperdrive ni por el pooler en modo transacción (puerto 6543). La conexión directa de Supabase gratis es solo IPv6 y los runners de GitHub no la alcanzan; Hyperdrive sí usa la directa.
-- **Supabase pausa un proyecto tras 1 semana sin actividad.** Por eso el proyecto de producción se crea en la fase 2 (A-018); con latidos constantes no se pausa. Staging sí puede pausarse. Reactivarlo desde el panel.
+- **Supabase pausa un proyecto tras 1 semana sin actividad.** Por eso el proyecto de producción se creó justo antes de usarlo (A-018); con latidos constantes no se pausa, pero sin tráfico sí. Staging también puede pausarse. Reactivarlo desde el panel.
 - **Supabase gratis no incluye respaldos descargables**: el respaldo es el workflow nocturno propio (A-010).
 - **Versiones viejas de la app** siguen mandando lotes durante meses. Un campo obligatorio nuevo las rompe.
 - **`sql.json()` no sirve con el cliente de Drizzle**: `drizzle-orm/postgres-js` reemplaza los serializadores de `json` y `jsonb` (114 y 3802) del cliente compartido por unos que no hacen nada, y un objeto llega como objeto a postgres.js. Para un parámetro `jsonb` se pasa `JSON.stringify(...)`.
@@ -81,7 +81,7 @@ Los de la fase 1 se confirman al crearlos. Si cambian, actualiza esta tabla en e
 - `docs/classifier.md`: reglas del clasificador y tests obligatorios
 - `docs/data-model.md`: esquema de PostgreSQL, funciones de ingesta, retención y presupuesto de consultas
 - `docs/decisions.md`: decisiones internas del backend (A-0xx)
-- `docs/roadmap.md`: tareas del backend por fase
+- `docs/roadmap.md`: lo que el backend ya construyó y qué le toca en cada fase del tablero maestro
 - `docs/runbook.md`: desplegar, volver atrás, restaurar, rotar secretos, reactivar un proyecto pausado y revisar el respaldo
-- `docs/plans/`: plan paso a paso de cada fase
-- En `pulso-app/docs/`: `product.md`, `detection.md`, `security-privacy.md`, `decisions.md` (D-0xx) y el roadmap maestro
+- `docs/plans/`: planes de las fases 0 a 5 del backend (histórico)
+- En `pulso-app/docs/`: `product.md`, `detection.md`, `security-privacy.md`, `decisions.md` (D-0xx), y el tablero `roadmap.md` con los archivos de `phases/`, donde vive el estado

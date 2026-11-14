@@ -1,5 +1,7 @@
 # Fase 0 · Contrato y clasificador: plan de implementación
 
+> **Histórico desde el 13 de noviembre de 2026 (D-046 de la app).** Este plan ya no manda y sus casillas no se actualizan. El plan vigente es el tablero `pulso-app/docs/roadmap.md` con los archivos de `pulso-app/docs/phases/`; lo que aquí quedó sin hacer pasó a las fases 7 a 13.
+
 > **Para agentes:** SUB-SKILL REQUERIDA: usar `superpowers:subagent-driven-development` (recomendado: todas las tareas son TypeScript puro con tests) o `superpowers:executing-plans` para ejecutar este plan tarea por tarea. Los pasos usan checkboxes (`- [ ]`).
 
 **Objetivo:** que `pulso-api` tenga, antes de cualquier ruta HTTP, el contrato de eventos y el clasificador de cortes testeados, más una herramienta que mida los exportes reales del registrador de la app.
